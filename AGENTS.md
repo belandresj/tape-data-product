@@ -1,6 +1,6 @@
 # Tape Data Product maintenance
 
-Read README.md, docs/developer-guide.md, docs/tape_data_product/README.md, docs/compact-layout.md and docs/query-contract.md first. The maintained product is compact 60s/300s direction-neutral tape measurement and causal retrieval. Older RTH V1, episode-local MU/X/Q and clustering are separate methodologies, even where lineage dependencies are retained.
+Start with README.md and docs/README.md. For build/reproduction work, read docs/dataset-build.md and docs/architecture.md; for feature changes, read docs/tape_data_product/README.md and docs/compact-layout.md; for query changes, read docs/query-contract.md. Setup and bounded verification commands are in docs/developer-guide.md and docs/verification/README.md. The maintained product is compact 60s/300s direction-neutral tape measurement with an existing exploratory cohort query. Do not claim that the full acquisition-to-report workflow is bundled. Older RTH V1, episode-local MU/X/Q and clustering are separate methodologies, even where lineage dependencies are retained.
 
 Preserve feature equations, event populations, clocks, support/maturity/null rules and query timing. Any semantic change requires explicit versioning and corresponding tests. Numerical reconstruction, source integrity, descriptive findings and executable expectancy are distinct claims.
 

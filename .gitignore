@@ -16,7 +16,5 @@ output/
 *.sqlite*
 *.duckdb*
 *.log
-handoff/source-baseline.json
-handoff/source-status-*.txt
-handoff/collection.txt
-handoff/*-raw.txt
+# Local extraction receipts remain private; maintained evidence lives under docs/.
+handoff/

@@ -52,6 +52,8 @@ To reproduce all pilot comparisons, generate the configs with `scripts/pilot_con
 
 ## Rebuilding features
 
+See [dataset build and reproduction](dataset-build.md) for the complete stage map. The instructions above query already calculated features; they do not recreate the acquisition universe or historical report.
+
 The direct calculator accepts normalized quote/trade Parquet paths, day, symbol, discovery metadata and explicit halt context. The [demo](../examples/synthetic_demo.py) shows the complete local API: `direct_frozen_product.product_pairs` → `compact_product.write_partition` → `verify_complete` / `audit_complete` → projected query reader. Use the same schemas and source-event semantics for authorized real inputs. The retained `run_direct_frozen_product.py` orchestrator additionally needs frozen selection inventories and measured, approved run configuration; these private inventories are not supplied.
 
 Canonical raw storage uses `tq/session_date=YYYY-MM-DD/symbol=SYMBOL/{trades,quotes}.parquet`. The [R2 interface](../src/01_data/r2_tq_storage.py) verifies SHA-256, bytes and row counts. Publication is immutable; existing keys must match exactly and are never overwritten. Raw JSONL exports are not canonical Parquet and require separate coverage auditing and normalization. Avoid downloading entire corpora; use bounded projected reads and private staging. This curation made no R2 requests or mutations.

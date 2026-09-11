@@ -4,6 +4,8 @@ Direction-neutral U.S. equity tape measurements and causal interval retrieval. T
 
 This repository contains the implemented compact 60s/300s product and its causal cohort query. It is a curated product checkout with synthetic examples and a completed five-date descriptive pilot. The [main report](../README.md) presents the broader March–August descriptive analysis; its figures and aggregate supporting counts were imported from the completed research results, not regenerated in this checkout. It is not a predictive strategy, validated trading model, full project archive, or redistribution of market data. Public release still requires a licensing and presentation decision.
 
+For the current build path and its limitations, start with [dataset build and reproduction](dataset-build.md). The [documentation index](README.md) separates current contracts from historical supporting specifications.
+
 ## Quickstart
 
 Python 3.11+ on macOS or Linux. Run from the checkout root:
@@ -17,7 +19,7 @@ python3 -m venv .venv
 
 The demo generates **721 invented quotes and 8,640 invented trades over 720 seconds**, computes the eighteen rolling features and their support fields, independently reconstructs the numerical output, and applies the [selected six-condition query](../config/tape_cohort_300s_ms3_p050_selected_v1.json). It writes an ignored `output/synthetic-demo/` directory, including a summary and temporary synthetic Parquet files. Choose a fresh `--output` directory when rerunning; existing results are never overwritten. No credentials or network access are needed after dependency installation.
 
-This is a source-checkout application: installation prepares dependencies and project metadata; run the documented scripts from the checkout. It does not yet expose an installed Python library or wheel-distributed CLI. The [verification report](../handoff/VERIFICATION.md) records the actual controlled environment and resource measurements, including the limits of that verification.
+This is a source-checkout application: installation prepares dependencies and project metadata; run the documented scripts from the checkout. It does not yet expose an installed Python library or wheel-distributed CLI. The [verification report](verification/README.md) records the actual controlled environment and resource measurements, including the limits of that verification.
 
 ## Product and timing
 
@@ -40,7 +42,7 @@ Authorized SIP trades + NBBO quotes
 
 The [feature contract](../docs/tape_data_product/README.md), [physical schema](../docs/compact-layout.md) and [query contract](../docs/query-contract.md) govern the maintained product. Older RTH V1 and episode-local 5m/10m/20m MU/X/Q methodologies are separate contracts. Retained upstream modules/specifications support decoding, numerical regression and provenance; they do not promote older feature families or clustering workflows into this product.
 
-Existing numbered source directories preserve working imports and file identities. `src/03_features/direct_frozen_product.py` calculates the compact measurements. `src/04_research/run_tape_cohort_query.py` handles planning and supervised retrieval; `verify_tape_cohort_query.py` checks persisted outputs. Details are in the [scope and dependency map](../handoff/SCOPE.md).
+Existing numbered source directories preserve working imports and file identities. `src/03_features/direct_frozen_product.py` calculates the compact measurements. `src/04_research/run_tape_cohort_query.py` handles planning and supervised retrieval; `verify_tape_cohort_query.py` checks persisted outputs. Details are in the [scope and dependency map](architecture.md).
 
 ## Evidence and limitations
 
@@ -48,7 +50,7 @@ In the [five-date pilot](../reports/pilot.md), adding participation entry ≥0.5
 
 No entry/exit execution model, costs, latency, adverse excursion, profitability or predictive expectancy has been tested here. Overlapping histories, unequal symbol/date contributions, selection bias and historical annotations constrain interpretation. Quoted spread is not realized execution cost; turnover is not executable capacity.
 
-[Real-data access and reproduction](../docs/data-access.md) require authorized private inputs. No full external-data acceptance run was performed for this repository. No six-month cohort completion is claimed. See [migration and preservation decisions](../handoff/MIGRATION.md) before replacing the original workspace.
+[Real-data access and reproduction](../docs/data-access.md) require authorized private inputs. No full external-data acceptance run was performed for this repository. No six-month cohort completion is claimed. The [dataset build guide](dataset-build.md) identifies the missing acquisition and report-generation stages; this repository is not a complete archive of the original research workspace.
 
 ## Rights
 

@@ -2,6 +2,7 @@
 
 Heuristic secret detection is defense in depth, not a proof of all possible secrets.
 """
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -11,12 +12,33 @@ from urllib.parse import unquote
 
 ROOT=Path(__file__).resolve().parents[1]
 files=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().split('\0')[:-1]
-findings=[];sizes=[];contents={}
-for name in files:
-    data=subprocess.check_output(['git','show',':'+name],cwd=ROOT)
-    contents[name]=data;sizes.append((len(data),name))
-    if len(data)>512*1024:findings.append([name,'file over 512 KiB'])
-    if Path(name).suffix.lower() in {'.parquet','.sqlite','.db','.duckdb','.png','.jpg','.pdf','.log','.pyc'}:
+findings=[];sizes=[]
+contents={name:subprocess.check_output(['git','show',':'+name],cwd=ROOT) for name in files}
+manifest_path='reports/report_assets/publication_manifest.json'
+approved_images=set()
+if manifest_path in contents:
+    try:
+        manifest=json.loads(contents[manifest_path])
+        records=manifest['files']
+        if not isinstance(records,dict):raise ValueError('files must be an object')
+        for asset,record in records.items():
+            if not isinstance(asset,str) or Path(asset).name!=asset or asset in ('.','..'):
+                raise ValueError('asset names must be plain filenames')
+            name='reports/report_assets/'+asset
+            data=contents.get(name)
+            if data is None or len(data)!=record['bytes'] or hashlib.sha256(data).hexdigest()!=record['sha256']:
+                findings.append([name,'publication asset missing or identity mismatch'])
+                continue
+            if Path(asset).suffix.lower()=='.png':
+                if not data.startswith(b'\x89PNG\r\n\x1a\n') or len(data)>2*1024**2:
+                    findings.append([name,'publication PNG invalid or over 2 MiB'])
+                else:approved_images.add(name)
+    except (ValueError,KeyError,TypeError) as exc:
+        findings.append([manifest_path,'invalid publication manifest: '+str(exc)])
+for name,data in contents.items():
+    sizes.append((len(data),name))
+    if len(data)>512*1024 and name not in approved_images:findings.append([name,'file over 512 KiB'])
+    if name not in approved_images and Path(name).suffix.lower() in {'.parquet','.sqlite','.db','.duckdb','.png','.jpg','.pdf','.log','.pyc'}:
         findings.append([name,'excluded file type'])
     if name.endswith('.env') or (Path(name).name.startswith('.env.') and name!='.env.example'):
         findings.append([name,'credential file'])
@@ -33,7 +55,10 @@ for name in files:
             if '://' in target or target.startswith('#') or target.startswith('mailto:'):continue
             target=unquote(target.split('#')[0])
             resolved=(ROOT/Path(name).parent/target).resolve()
-            if not resolved.exists():findings.append([name,'missing Markdown target: '+target])
+            if not resolved.is_relative_to(ROOT):
+                findings.append([name,'Markdown target outside repository: '+target])
+            elif resolved.relative_to(ROOT).as_posix() not in contents:
+                findings.append([name,'Markdown target absent from Git index: '+target])
 # Only variable names and empty values in the environment example.
 for line in contents.get('.env.example',b'').decode().splitlines():
     if line and not re.fullmatch(r'[A-Z_][A-Z_0-9]*=',line):findings.append(['.env.example','nonempty variable value'])
