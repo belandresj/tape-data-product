@@ -1,4 +1,4 @@
-# Intraday Equity Tape Features — Technical Supplement
+# Equity Tape Characterization — Technical Supplement
 
 Supporting definitions, observation-status counts, and figure verification for the [main report](../README.md). Section and figure numbers refer to that report. The empirical report assets were imported from the completed research analysis; this standalone checkout did not rerun the six-month dataset calculations.
 

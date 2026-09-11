@@ -1,4 +1,6 @@
-# Intraday Equity Tape Features
+# Equity Tape Characterization
+
+*One-second measurements of intraday movement, trading activity, and quoted liquidity.*
 
 ## 1. Introduction
 
