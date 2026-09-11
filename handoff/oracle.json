@@ -1,0 +1,10 @@
+{
+  "candidate_start_endpoint_ns": 4000000000,
+  "entry_confirmed_at_ns": 6000000000,
+  "exit_trigger_endpoint_ns": 10000000000,
+  "exit_effective_at_ns": 12000000000,
+  "active_seconds": 6,
+  "strict_pass_count": 1,
+  "continuation_pass_count": 3,
+  "pending_exit_count": 3
+}

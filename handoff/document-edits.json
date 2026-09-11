@@ -1,0 +1,7 @@
+{
+  "policy": "Unbundled source-only Markdown links converted to explicit textual references; mathematical definitions unchanged. These edited document bytes have new hashes.",
+  "files": [
+    "docs/query-contract.md",
+    "docs/tape_data_product/README.md"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "checked_small_source_files": 407,
+  "changed_files": [
+    "docs/tape_data_product/report_revised_draft.md"
+  ],
+  "git_status_unchanged": true,
+  "scope": "Selected source/config/test/document files and Git HEAD/index/config; no full data-cache hashing. Task writes were confined to the new sibling checkout."
+}
