@@ -1,4 +1,4 @@
-# Equity Tape Characterization
+# U.S. Equities Tape Characterization
 
 *One-second measurements of intraday movement, trading activity, and quoted liquidity.*
 
