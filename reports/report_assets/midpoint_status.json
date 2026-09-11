@@ -1,0 +1,130 @@
+{
+  "300s": {
+    "gate_passing": {
+      "after_hours": {
+        "known": 5645515,
+        "no_change_observed": 44306,
+        "support_rows_missing": 0,
+        "support_rows_provided": 5707227,
+        "unobservable": 17406
+      },
+      "pooled": {
+        "known": 46929571,
+        "no_change_observed": 128795,
+        "support_rows_missing": 0,
+        "support_rows_provided": 47110182,
+        "unobservable": 51816
+      },
+      "premarket": {
+        "known": 14106134,
+        "no_change_observed": 64033,
+        "support_rows_missing": 0,
+        "support_rows_provided": 14201213,
+        "unobservable": 31046
+      },
+      "rth": {
+        "known": 27177922,
+        "no_change_observed": 20456,
+        "support_rows_missing": 0,
+        "support_rows_provided": 27201742,
+        "unobservable": 3364
+      }
+    },
+    "post_discovery": {
+      "after_hours": {
+        "known": 85697898,
+        "no_change_observed": 837040,
+        "support_rows_missing": 0,
+        "support_rows_provided": 87077438,
+        "unobservable": 542500
+      },
+      "pooled": {
+        "known": 242730857,
+        "no_change_observed": 1310270,
+        "support_rows_missing": 0,
+        "support_rows_provided": 246150282,
+        "unobservable": 2109155
+      },
+      "premarket": {
+        "known": 44895640,
+        "no_change_observed": 237488,
+        "support_rows_missing": 0,
+        "support_rows_provided": 45260828,
+        "unobservable": 127700
+      },
+      "rth": {
+        "known": 112137319,
+        "no_change_observed": 235742,
+        "support_rows_missing": 0,
+        "support_rows_provided": 113812016,
+        "unobservable": 1438955
+      }
+    },
+    "rolling_p90_eligibility_location": "coverage/populations.json",
+    "source": "explicit projected midpoint_age_observation_status; never inferred from rolling-age nulls"
+  },
+  "60s": {
+    "gate_passing": {
+      "after_hours": {
+        "known": 6075316,
+        "no_change_observed": 53279,
+        "support_rows_missing": 0,
+        "support_rows_provided": 6148194,
+        "unobservable": 19599
+      },
+      "pooled": {
+        "known": 50724929,
+        "no_change_observed": 149740,
+        "support_rows_missing": 0,
+        "support_rows_provided": 50933912,
+        "unobservable": 59243
+      },
+      "premarket": {
+        "known": 14996285,
+        "no_change_observed": 72656,
+        "support_rows_missing": 0,
+        "support_rows_provided": 15103991,
+        "unobservable": 35050
+      },
+      "rth": {
+        "known": 29653328,
+        "no_change_observed": 23805,
+        "support_rows_missing": 0,
+        "support_rows_provided": 29681727,
+        "unobservable": 4594
+      }
+    },
+    "post_discovery": {
+      "after_hours": {
+        "known": 85697898,
+        "no_change_observed": 837040,
+        "support_rows_missing": 0,
+        "support_rows_provided": 87077438,
+        "unobservable": 542500
+      },
+      "pooled": {
+        "known": 242730857,
+        "no_change_observed": 1310270,
+        "support_rows_missing": 0,
+        "support_rows_provided": 246150282,
+        "unobservable": 2109155
+      },
+      "premarket": {
+        "known": 44895640,
+        "no_change_observed": 237488,
+        "support_rows_missing": 0,
+        "support_rows_provided": 45260828,
+        "unobservable": 127700
+      },
+      "rth": {
+        "known": 112137319,
+        "no_change_observed": 235742,
+        "support_rows_missing": 0,
+        "support_rows_provided": 113812016,
+        "unobservable": 1438955
+      }
+    },
+    "rolling_p90_eligibility_location": "coverage/populations.json",
+    "source": "explicit projected midpoint_age_observation_status; never inferred from rolling-age nulls"
+  }
+}

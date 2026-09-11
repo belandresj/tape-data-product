@@ -1,0 +1,94 @@
+{
+  "300s": {
+    "after_hours": {
+      "failing": 81278999,
+      "gate_eligible": 86986226,
+      "passing": 5707227,
+      "passing_stock_hours": 1585.3408333333334,
+      "post_discovery": 87077438,
+      "represented": 89596800,
+      "retention_of_gate_eligible": 0.06561069795119057,
+      "retention_of_post_discovery": 0.06554197196293259,
+      "unavailable": 91212
+    },
+    "pooled": {
+      "failing": 196755160,
+      "gate_eligible": 243865342,
+      "passing": 47110182,
+      "passing_stock_hours": 13086.161666666667,
+      "post_discovery": 246150282,
+      "represented": 358387200,
+      "retention_of_gate_eligible": 0.19318112862466533,
+      "retention_of_post_discovery": 0.19138788555196537,
+      "unavailable": 2284940
+    },
+    "premarket": {
+      "failing": 30844650,
+      "gate_eligible": 45045863,
+      "passing": 14201213,
+      "passing_stock_hours": 3944.781388888889,
+      "post_discovery": 45260828,
+      "represented": 123195600,
+      "retention_of_gate_eligible": 0.3152612038979029,
+      "retention_of_post_discovery": 0.31376387988306353,
+      "unavailable": 214965
+    },
+    "rth": {
+      "failing": 84631511,
+      "gate_eligible": 111833253,
+      "passing": 27201742,
+      "passing_stock_hours": 7556.039444444445,
+      "post_discovery": 113812016,
+      "represented": 145594800,
+      "retention_of_gate_eligible": 0.24323482748015923,
+      "retention_of_post_discovery": 0.23900588844678755,
+      "unavailable": 1978763
+    }
+  },
+  "60s": {
+    "after_hours": {
+      "failing": 80850282,
+      "gate_eligible": 86998476,
+      "passing": 6148194,
+      "passing_stock_hours": 1707.8316666666667,
+      "post_discovery": 87077438,
+      "represented": 89596800,
+      "retention_of_gate_eligible": 0.07067013449752844,
+      "retention_of_post_discovery": 0.07060605067411377,
+      "unavailable": 78962
+    },
+    "pooled": {
+      "failing": 193639143,
+      "gate_eligible": 244573055,
+      "passing": 50933912,
+      "passing_stock_hours": 14148.308888888889,
+      "post_discovery": 246150282,
+      "represented": 358387200,
+      "retention_of_gate_eligible": 0.20825643282740203,
+      "retention_of_post_discovery": 0.2069220136014307,
+      "unavailable": 1577227
+    },
+    "premarket": {
+      "failing": 30155277,
+      "gate_eligible": 45259268,
+      "passing": 15103991,
+      "passing_stock_hours": 4195.553055555555,
+      "post_discovery": 45260828,
+      "represented": 123195600,
+      "retention_of_gate_eligible": 0.333721504289464,
+      "retention_of_post_discovery": 0.33371000194693745,
+      "unavailable": 1560
+    },
+    "rth": {
+      "failing": 82633584,
+      "gate_eligible": 112315311,
+      "passing": 29681727,
+      "passing_stock_hours": 8244.924166666666,
+      "post_discovery": 113812016,
+      "represented": 145594800,
+      "retention_of_gate_eligible": 0.26427142244212815,
+      "retention_of_post_discovery": 0.2607960744672162,
+      "unavailable": 1496705
+    }
+  }
+}
