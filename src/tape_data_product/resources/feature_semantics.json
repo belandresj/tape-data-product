@@ -1,0 +1,17 @@
+{
+  "semantic_version": "compact_60s_300s_unchanged_v1",
+  "historical_document_sha256": {
+    "docs/rolling_tape/rolling_tape_state_v2_feature_spec.md": "4b6d083cf14ce34c8f4488cc48c86976b55627800dc9742fca97d267131bd343",
+    "docs/tape_characterization_v3/tape_characterization_v3_model.md": "74db74876e134cebd419a078475c1be75f2bc7d21d55a573064de4853ab046ed",
+    "docs/tape_characterization_v3/pilot_implementation_spec.md": "fde1ab80e650a9a8341636359acb8c245fea7859805b2477084eb1157d58ac0c"
+  },
+  "horizons_seconds": [
+    60,
+    300
+  ],
+  "movement_phase_seconds": 5,
+  "cadence_seconds": 1,
+  "interval": "[t-1s,t)",
+  "session": "[04:00,20:00) America/New_York",
+  "source_snapshot": "Historical document digests preserve the pre-migration semantic lineage; installed code and metadata receive new transitive implementation identities."
+}

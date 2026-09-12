@@ -7,12 +7,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/"src/04_research"))
 
-from tape_cohort_config import INITIAL_CONFIG,normalize_config,query_hash
-from tape_cohort_outputs import DateSinks,DurationHistogram,verify_date
-from tape_cohort_state import CohortMachine,decision_stratum,source_stratum,NS
-from verify_tape_cohort_query import worked_transition_oracle
+from tape_data_product.query.tape_cohort_config import INITIAL_CONFIG,normalize_config,query_hash
+from tape_data_product.query.tape_cohort_outputs import DateSinks,DurationHistogram,verify_date
+from tape_data_product.query.tape_cohort_state import CohortMachine,decision_stratum,source_stratum,NS
+from tape_data_product.query.verify_tape_cohort_query import worked_transition_oracle
 
 
 def one_feature(entry=2.,continuation=1.,nentry=3,nexit=3):

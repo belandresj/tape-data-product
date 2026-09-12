@@ -2,7 +2,7 @@
 
 Contract identity: `tape_data_product_v1`. Compact physical layout: `tape_product_compact_v1`. The retained calculator, compact writer and causal query implement the compact 60s/300s feature product. The standalone verification uses synthetic fixtures; this does not assert that real data were regenerated or that every historical methodology is implemented. The equations and feature definitions below are preserved from the source contract.
 
-See [layout and validation](../compact-layout.md), [query behavior](../query-contract.md), and [data access](../data-access.md). Older specifications retained elsewhere are provenance dependencies, not additions to this feature inventory.
+See [layout and validation](../compact-layout.md), [query behavior](../query-contract.md), and [data access](../data-access.md). Packaged semantic metadata preserves historical definition identities without requiring implementation documents at runtime.
 
 ## Product goal
 
@@ -114,12 +114,10 @@ These are supporting observations, not additional rolling headline features. The
 
 Store supported zeros as zero. Persist undefined values as native null, with per-feature validity and reason flags; never persist NaN or infinity. Participation inherits the mean's movement support and maturity gates and additionally requires positive total movement. Support counts are not independent sample counts. Do not force every query onto one universal complete-case population.
 
-## Implementation and publication requirements
+## Calculation and resource guarantees
 
-The implementation handoff owns source mappings, acquisition identities, bounded processing, tests, and acceptance evidence. The mean source conversion is `midpoint_movement_bps_per_30s_{H}s / 6`; the source multiplier is normalization, not a measured 30-second return. Published source trade/quote age p90s are in milliseconds and require division by 1000. Reuse must be verified against actual schemas and manifests, not inferred from documentation.
+The mean source conversion is `midpoint_movement_bps_per_30s_{H}s / 6`; the multiplier is normalization, not a measured 30-second return. Source trade/quote age p90s expressed in milliseconds are divided by 1,000. Reuse is checked against schemas and manifests.
 
-Changing a normative equation, population, clock, support gate, denominator, zero/null rule, or membership requires a contract revision and matching code/tests and version identities. Freezing this contract does not modify other product contracts or immutable source objects. Completed data and implementation claims require their own acceptance evidence.
+Changes to a normative equation, population, clock, support gate, denominator, zero/null rule or membership require a contract revision and matching tests and identities. Integrity, independent numerical reconstruction and external-data acceptance remain separate claims.
 
-The durable store is Cloudflare R2 bucket `massive-equities`; local disks are bounded working caches. Canonical T/Q lives at `tq/session_date=YYYY-MM-DD/symbol=SYMBOL/{trades,quotes}.parquet`; reusable base features live under `derived/tape_features/`. Read the storage workflow (source-only document `../tape_characterization_v1/acquisition/r2_tq_storage.md`; not bundled) before inventory/staging or publication. The July R2 completion handoff authorizes a hash-bound narrow extension and a combined base/extension reader; see July R2 implementation (source-only document `july_r2_implementation.md`; not bundled). Full July execution still requires the revised measured resource checkpoint and confirmation. Broader backfill is outside that scope.
-
-Implementations must stream projected batches (default 4,096 rows; at most 25,000) and fixed-size rolling state on this 8 GiB machine. Follow the stricter coexistence controls in the implementation spec (source-only document `all_feature_month_dataset_implementation_spec.md`; not bundled). Measure the exact revised production path on representative bounded data, report peak RSS and projected storage/runtime, and obtain confirmation before full external-data acceptance. This contract does not itself establish runtime or memory compliance.
+Canonical raw storage and acquisition are documented in [acquisition](../acquisition.md). The durable store is Cloudflare R2; local storage remains usable for every calculation stage. Current resource bounds and measured acceptance are in [architecture](../architecture.md) and [verification](../verification/README.md). Full external-data runs require a representative production-path measurement and confirmation; this contract does not itself establish memory compliance.

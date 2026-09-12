@@ -36,6 +36,8 @@ if manifest_path in contents:
     except (ValueError,KeyError,TypeError) as exc:
         findings.append([manifest_path,'invalid publication manifest: '+str(exc)])
 for name,data in contents.items():
+    if re.search(r'(?:^|/)(?:implementation-progress|.*implementation_spec|.*handoff|.*agent_prompt|.*work-plan)', name, re.I):
+        findings.append([name,'private implementation material'])
     sizes.append((len(data),name))
     if len(data)>512*1024 and name not in approved_images:findings.append([name,'file over 512 KiB'])
     if name not in approved_images and Path(name).suffix.lower() in {'.parquet','.sqlite','.db','.duckdb','.png','.jpg','.pdf','.log','.pyc'}:

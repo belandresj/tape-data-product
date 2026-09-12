@@ -7,15 +7,14 @@ import numpy as np
 import pyarrow.parquet as pq
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path[:0]=[str(ROOT/'src/04_research'),str(ROOT/'tests')]
-import all_feature_month_core as C
-import all_feature_month_runtime as R
-import snapshot_feature_pipeline as F
+from tape_data_product.features import all_feature_month_core as C
+from tape_data_product.features import all_feature_month_runtime as R
+from tape_data_product.features import snapshot_feature_pipeline as F
 from test_economic_tape_v3 import primitive,quote,trade,raw_pair
 
 
 def test_reference_sum_exact_zero_after_nonzero_expiry():
-    from all_feature_month_verify import ReferenceSum
+    from tape_data_product.features.all_feature_month_verify import ReferenceSum
     values=[3238327.6483316235,1508491.7392450192,6509344.730398538,
             724362.8666754276,5358820.043066892,3656889.1691258554,579989.2477470681]
     s=ReferenceSum(60)
@@ -29,7 +28,7 @@ def test_reference_sum_exact_zero_after_nonzero_expiry():
 
 def test_reference_sum_preserves_small_live_value_after_large_eviction():
     """A rounded rebuild must not erase a live value before an eviction."""
-    from all_feature_month_verify import ReferenceSum
+    from tape_data_product.features.all_feature_month_verify import ReferenceSum
     s=ReferenceSum(3)
     values=[1e16,1.,0.,0.]
     for value in values:s.append(value)
@@ -166,7 +165,7 @@ def test_incumbent_pid_reuse_and_stale_status_are_rejected(tmp_path,monkeypatch)
     (queue/'status.json').write_text(json.dumps(status))
     class P:
         pid=123
-        info=dict(pid=123,cmdline=['run_tape_feature_queue_v2.py','_daemon','--root',str(queue)],create_time=43)
+        info=dict(pid=123,cmdline=['run_tape_feature_queue_fixture.py','_daemon','--root',str(queue)],create_time=43)
         def __init__(self,*args):pass
         def create_time(self):return 43
         def cmdline(self):return self.info['cmdline']
@@ -203,7 +202,7 @@ def test_pressure_monitor_only_signals_its_owned_worker(tmp_path,monkeypatch):
 
 def test_frozen_selection_includes_absent_base_and_provenance_failures(tmp_path,monkeypatch):
     import csv,sqlite3
-    import all_feature_month_inventory as I
+    from tape_data_product.features import all_feature_month_inventory as I
     universe=tmp_path/'universe';folder=universe/'days'/'2026-07-01';folder.mkdir(parents=True)
     (universe/'plan.json').write_text(json.dumps(dict(sessions=['2026-07-01','2026-07-02'])))
     columns=['ticker','session_date','window_end_ns','last_bar_start_ns','first_trigger_time_et','configuration_hash']
@@ -261,8 +260,8 @@ def test_burst_versus_sustained_zero_eviction():
 
 def test_staging_partition_identity_completion_and_catalog(tmp_path,monkeypatch):
     import sqlite3
-    import run_all_feature_month as RUN
-    import all_feature_month_inventory as I
+    from tape_data_product.features import run_all_feature_month as RUN
+    from tape_data_product.features import all_feature_month_inventory as I
     quotes,trades,base,day,halts=build_fixture(tmp_path/'fixture',seconds=660)
     def obj(path):return dict(object_key='synthetic/'+path.name,sha256=I.sha(path),size_bytes=path.stat().st_size,rows=pq.ParquetFile(path).metadata.num_rows)
     source=dict(session_date=day,symbol='TEST',quotes=obj(quotes),trades=obj(trades))
@@ -289,7 +288,7 @@ def test_staging_partition_identity_completion_and_catalog(tmp_path,monkeypatch)
 
 
 def test_halt_overlay_mismatch_cannot_publish(tmp_path):
-    import run_all_feature_month as RUN
+    from tape_data_product.features import run_all_feature_month as RUN
     quotes,trades,base,day,halts=build_fixture(tmp_path/'fixture')
     def obj(path):return dict(object_key='synthetic/'+path.name,sha256=RUN.sha(path),size_bytes=path.stat().st_size,rows=pq.ParquetFile(path).metadata.num_rows)
     source=dict(session_date=day,symbol='TEST',quotes=obj(quotes),trades=obj(trades))
@@ -338,8 +337,8 @@ def test_interval_left_edge_session_labels():
 
 def test_remote_inventory_requires_actual_manifest_and_source_identity(monkeypatch):
     import copy
-    import all_feature_month_inventory as I
-    import tape_feature_store as STORE
+    from tape_data_product.features import all_feature_month_inventory as I
+    from tape_data_product.features import tape_feature_store as STORE
     day='2026-07-01';symbol='TEST'
     source=dict(session_date=day,symbol=symbol)
     for stream,window in [('quotes','0355-2000'),('trades','0400-2000')]:
@@ -366,7 +365,7 @@ def test_remote_inventory_requires_actual_manifest_and_source_identity(monkeypat
 
 
 def test_cleanup_is_limited_to_verified_private_staging(tmp_path):
-    import run_all_feature_month as RUN
+    from tape_data_product.features import run_all_feature_month as RUN
     names=('quotes.parquet','base.parquet','base_prefix.parquet','extension.parquet','features.parquet','coverage.json','validation_traces.json')
     for name in names:(tmp_path/name).write_text('fixture')
     with pytest.raises(ValueError,match='incomplete'):RUN.release_staged_copies(tmp_path)
@@ -378,7 +377,7 @@ def test_cleanup_is_limited_to_verified_private_staging(tmp_path):
 
 @pytest.mark.parametrize('values',[[1]*56,[2]*5+[0]*51,[1]+[0]*55,[0]*56,[],[1e-300,2e-300,3e-300],[1e300,2e300,3e300],[1,1e-200,3,0]])
 def test_exact_moments_independent_scaled_reference(values):
-    from all_feature_month_verify import participation
+    from tape_data_product.features.all_feature_month_verify import participation
     m=C.Moments(56)
     for x in values:m.append(x)
     expected=participation(values)
@@ -391,7 +390,7 @@ def test_exact_moments_independent_scaled_reference(values):
 
 
 def test_moments_long_outlier_eviction_and_subnormal_scale():
-    from all_feature_month_verify import participation
+    from tape_data_product.features.all_feature_month_verify import participation
     from collections import deque
     m=C.Moments(56);reference=deque(maxlen=56)
     for i in range(10000):
@@ -405,7 +404,7 @@ def test_moments_long_outlier_eviction_and_subnormal_scale():
 
 
 def test_v2_schema_exact_membership_and_null_first_row():
-    from all_feature_month_schema import REGISTRY
+    from tape_data_product.features.all_feature_month_schema import REGISTRY
     expected={'movement_mean_5s_bps','movement_participation','quoted_spread_mean_bps','trade_rate','dollar_rate',
         'trade_age_p90_seconds','quote_age_p90_seconds','midpoint_change_age_p90_seconds','movement_mean_to_spread'}
     assert set(REGISTRY)==expected
@@ -463,7 +462,7 @@ def test_final_file_only_reconstruction_and_corruption(tmp_path):
 
 
 def test_prefix_no_copy_one_quote_decoder_and_one_final_pass(tmp_path,monkeypatch):
-    import run_all_feature_month as RUN
+    from tape_data_product.features import run_all_feature_month as RUN
     q,t,base,day,halts=build_fixture(tmp_path/'inputs',seconds=80)
     def obj(path):return dict(object_key='fixture/'+path.name,sha256=RUN.sha(path),size_bytes=path.stat().st_size,rows=pq.ParquetFile(path).metadata.num_rows)
     payload=dict(entry=dict(source=dict(session_date=day,symbol='TEST',quotes=obj(q),trades=obj(t)),halts=[]),
@@ -481,8 +480,8 @@ def test_prefix_no_copy_one_quote_decoder_and_one_final_pass(tmp_path,monkeypatc
 
 def test_immutable_execution_selection_and_unselected_catalog(tmp_path,monkeypatch):
     import sqlite3
-    import all_feature_month_selection as S
-    import run_all_feature_month as RUN
+    from tape_data_product.features import all_feature_month_selection as S
+    from tape_data_product.features import run_all_feature_month as RUN
     inv=tmp_path/'inv';inv.mkdir();db=sqlite3.connect(inv/'inventory.sqlite')
     db.execute('CREATE TABLE members(day TEXT,symbol TEXT,status TEXT,reason TEXT,payload TEXT)')
     db.executemany('INSERT INTO members VALUES (?,?,?,?,?)',[('2026-07-01',s,'admitted',None,'{}') for s in ('A','B')]);db.commit();db.close()
@@ -504,8 +503,8 @@ def test_immutable_execution_selection_and_unselected_catalog(tmp_path,monkeypat
 
 @pytest.mark.parametrize('phase',['staging','extension','assembly','verification'])
 def test_failure_each_partition_phase_has_no_completion(tmp_path,monkeypatch,phase):
-    import run_all_feature_month as RUN
-    import all_feature_month_verify as VERIFY
+    from tape_data_product.features import run_all_feature_month as RUN
+    from tape_data_product.features import all_feature_month_verify as VERIFY
     q,t,base,day,halts=build_fixture(tmp_path/'fixture',seconds=61)
     def obj(path):return dict(object_key='fixture/'+path.name,sha256=RUN.sha(path),size_bytes=path.stat().st_size,rows=pq.ParquetFile(path).metadata.num_rows)
     payload=dict(entry=dict(source=dict(session_date=day,symbol='TEST',quotes=obj(q),trades=obj(t)),halts=[]),
@@ -535,7 +534,7 @@ def test_zero_total_reason_preserves_good_source(tmp_path):
 
 
 def test_capability_rejects_missing_transactions_and_wrong_type():
-    from all_feature_month_schema import capabilities
+    from tape_data_product.features.all_feature_month_schema import capabilities
     base=F.schema()
     assert capabilities(base)['raw_trades_replayed'] is False
     with pytest.raises(ValueError,match='capability absent'):capabilities(C.pa.schema([f for f in base if f.name!='primitive_trade_count']))
@@ -544,7 +543,7 @@ def test_capability_rejects_missing_transactions_and_wrong_type():
 
 
 def test_optimized_reference_matches_brute_oracle(tmp_path):
-    import all_feature_month_verify as fast
+    from tape_data_product.features import all_feature_month_verify as fast
     import all_feature_month_verify_oracle as oracle
     q,t,base,day,halts=build_fixture(tmp_path/'input')
     ext=tmp_path/'ext.parquet';out=tmp_path/'features.parquet'
@@ -556,7 +555,7 @@ def test_optimized_reference_matches_brute_oracle(tmp_path):
 
 def test_reference_quantiles_null_duplicates_and_eviction():
     import random
-    from all_feature_month_verify import ReferenceQuantile,quantile
+    from tape_data_product.features.all_feature_month_verify import ReferenceQuantile,quantile
     rng=random.Random(812)
     for capacity in (1,7,60,300):
         window=ReferenceQuantile(capacity);history=[]
@@ -569,7 +568,7 @@ def test_reference_quantiles_null_duplicates_and_eviction():
 
 def test_reference_tree_extreme_scale_and_outlier_eviction():
     import random
-    from all_feature_month_verify import ReferenceParticipation,participation
+    from tape_data_product.features.all_feature_month_verify import ReferenceParticipation,participation
     rng=random.Random(721)
     for capacity in (1,7,56,296):
         tree=ReferenceParticipation(capacity);history=[]
@@ -607,7 +606,7 @@ def test_batch_finite_validation_preserves_nulls_and_rejects_infinity(tmp_path):
 
 
 def test_staging_fixed_overhead_model():
-    import run_all_feature_month as RUN
+    from tape_data_product.features import run_all_feature_month as RUN
     samples=[dict(partition=dict(staged_bytes=b,staging_seconds=2+b*.001)) for b in (100,1000,10000)]
     model=RUN.staging_model(samples,100000,10)
     assert model['fixed_seconds_per_partition']==pytest.approx(2)
@@ -627,3 +626,16 @@ def test_admission_identity_race_forces_cold_admission(tmp_path,monkeypatch):
     with pytest.raises(R.ResourceWait,match='before child launch'):
         R.supervise([],research=tmp_path,scratch=tmp_path,report=tmp_path/'resources.json',projected_peak=192*R.MiB,admission_history=h)
     assert calls==[0,10] and h.observed is None
+
+
+@pytest.fixture(autouse=True)
+def ample_disk_for_small_transaction_fixtures(monkeypatch):
+    """Exercise transactions independently of unrelated host free-space pressure.
+
+    Fixtures write kilobytes; production reserve tests explicitly supply low free
+    capacity to the resource predicates and retain the real reserve constants.
+    """
+    import shutil
+    from collections import namedtuple
+    Usage = namedtuple('Usage', 'total used free')
+    monkeypatch.setattr(shutil, 'disk_usage', lambda path: Usage(100*1024**3, 10*1024**3, 90*1024**3))

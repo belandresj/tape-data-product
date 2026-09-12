@@ -21,4 +21,4 @@ The retained [twenty aggregate rows](pilot-aggregates.json) are sufficient to re
 
 Authorized reproduction: obtain the exact private release controls and calculation allowlist, generate each variant with [pilot_configs.py](../scripts/pilot_configs.py), then plan each of these five dates using the [documented real-data workflow](../docs/data-access.md). The copied query semantics are unchanged; the expanded implementation-identity closure requires new plans. Original run plans must not be resumed in this checkout.
 
-No six-month cohort results are presented. Costs, fills, entry/exit execution, latency, adverse excursion, win rate, payoff, profit factor and executable expectancy remain untested. Empirical vendor-data charts are excluded pending rights review; the table is an aggregate summary, not a market-data redistribution license.
+No six-month cohort results are presented. Costs, fills, entry/exit execution, latency, adverse excursion, win rate, payoff, profit factor and executable expectancy remain untested. The table is an aggregate summary, not a market-data redistribution license.

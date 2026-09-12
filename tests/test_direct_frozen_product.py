@@ -5,13 +5,11 @@ import math
 import json
 from collections import Counter
 import pytest
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src/04_research'))
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src/03_features'))
-import compact_product as P
-import compact_product_schema as S
-import direct_frozen_product as D
-import all_feature_month_core as C
-import july_r2_product as J
+from tape_data_product.features import compact_product as P
+from tape_data_product.features import compact_product_schema as S
+from tape_data_product.features import direct_frozen_product as D
+from tape_data_product.features import all_feature_month_core as C
+from tape_data_product.features import july_r2_product as J
 from test_all_feature_month import build_fixture
 from test_economic_tape_v3 import quote,raw_pair
 

@@ -8,7 +8,7 @@
 | `support.parquet` | 63 | Three keys and sixty reconstruction/quality fields |
 | `manifest.json` | — | Input/calculation identities, discovery metadata, schemas, SHA-256/length/rows, completion and validation evidence |
 
-Authoritative field types, nullability and reason bits are in [compact_product_schema.py](../src/04_research/compact_product_schema.py); units and feature definitions are in [all_feature_month_schema.py](../src/04_research/all_feature_month_schema.py).
+Authoritative field types, nullability and reason bits are in [compact_product_schema.py](../src/tape_data_product/features/compact_product_schema.py); units and feature definitions are in [all_feature_month_schema.py](../src/tape_data_product/features/all_feature_month_schema.py).
 
 Schema hashes without Arrow metadata:
 

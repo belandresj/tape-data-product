@@ -4,9 +4,8 @@ import pathlib
 import sys
 import pytest
 from botocore.exceptions import ClientError
-sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/'src/04_research'))
-from tape_cohort_reliability import retry_download,fatal
-import tape_cohort_pipeline as P
+from tape_data_product.query.tape_cohort_reliability import retry_download,fatal
+from tape_data_product.query import tape_cohort_pipeline as P
 
 
 def test_stream_failure_restarts_private_partial(tmp_path):
@@ -104,7 +103,7 @@ def test_resume_rejects_changed_date_identity(fake_run):
 
 def test_supervisor_stops_worker_at_resource_floor(tmp_path,monkeypatch):
     import subprocess,psutil,types
-    from tape_cohort_reliability import supervise
+    from tape_data_product.query.tape_cohort_reliability import supervise
     plan={'query_run_hash':'fixture','result_root':str(tmp_path),'settings':{'rss_stop_bytes':1024**3,'minimum_available_bytes':768*1024**2,'minimum_free_disk_bytes':0}}
     monkeypatch.setattr(P,'_load_plan',lambda _:plan)
     real_popen=subprocess.Popen;children=[]
@@ -118,7 +117,7 @@ def test_supervisor_stops_worker_at_resource_floor(tmp_path,monkeypatch):
 
 
 def test_interrupted_json_temp_does_not_block_resume(tmp_path):
-    from tape_cohort_outputs import atomic_json
+    from tape_data_product.query.tape_cohort_outputs import atomic_json
     orphan=tmp_path/'.progress.json.partial';orphan.write_text('interrupted')
     target=tmp_path/'progress.json'
     atomic_json(target,{'state':'running'});atomic_json(target,{'state':'complete'})
@@ -127,7 +126,7 @@ def test_interrupted_json_temp_does_not_block_resume(tmp_path):
 
 
 def test_cli_defaults_to_supervised_run():
-    from run_tape_cohort_query import parser
+    from tape_data_product.query.run_tape_cohort_query import parser
     args=parser().parse_args(['run','--plan','fixture.json','--resume'])
     assert args.resume and not args.worker
 
@@ -135,7 +134,7 @@ def test_cli_defaults_to_supervised_run():
 @pytest.mark.parametrize('exit_code',[0,2])
 def test_supervisor_propagates_worker_completion(tmp_path,monkeypatch,exit_code):
     import subprocess,psutil,types
-    from tape_cohort_reliability import supervise
+    from tape_data_product.query.tape_cohort_reliability import supervise
     plan={'query_run_hash':'fixture','result_root':str(tmp_path),'settings':{'rss_stop_bytes':1024**3,'minimum_available_bytes':768*1024**2,'minimum_free_disk_bytes':0}}
     monkeypatch.setattr(P,'_load_plan',lambda _:plan)
     real_popen=subprocess.Popen

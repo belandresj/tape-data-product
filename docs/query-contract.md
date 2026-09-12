@@ -1,12 +1,23 @@
 # Causal cohort query contract
 
-Extracted normative sections from `compact_tape_query_projection_spec.md`, design `local_tape_retrieval_v2`, semantics `tape_cohort_hysteresis_v1`. The corresponding config, reader, state machine and output modules are implemented and tested in this repository. This document does not assert that every larger-system requirement of the source design was implemented.
+The implemented semantics are `tape_cohort_hysteresis_v1`. The installed query reads verified compact releases and processes every ordered endpoint. These are descriptive selections; neither confirmation nor eventual duration establishes an executable trading model or persistence of future local conditions.
 
-The older 60s initial-config example below is retained as grammar context. The maintained example is [the selected 300s config](../config/tape_cohort_300s_ms3_p050_selected_v1.json), with participation 0.50/0.40 and movement/spread 3.0/2.4. Neither defines a trade model. See real-data access (source-only document `data-access.md`; not bundled) for the historical release restriction.
+## Configuration
 
-## 4. Query configuration and immutable identity
+The [selected 300s configuration](../config/tape_cohort_300s_ms3_p050_selected_v1.json) uses five consecutive entry passes and five consecutive continuation failures:
 
-### 4.1 Supported grammar
+| Feature | Entry | Continuation |
+|---|---:|---:|
+| Mean five-second movement | ≥10 bps | ≥8 bps |
+| Mean quoted spread | >0 and ≤100 bps | >0 and ≤125 bps |
+| Trade rate | ≥10/s | ≥8/s |
+| Dollar rate | ≥5,000 USD/s | ≥4,000 USD/s |
+| Movement/spread | ≥3.0 | ≥2.4 |
+| Movement participation | ≥0.50 | ≥0.40 |
+
+These thresholds were selected using the [five-date development pilot](../reports/pilot.md). They are not independently validated predictive boundaries. Mixed horizons and alternative explicit thresholds remain supported by the grammar.
+
+### Supported grammar
 
 Each condition identifies one exact feature name from the eighteen-field schema
 and its unit. Conditions are conjunctive (AND); no arbitrary expression strings,
@@ -35,68 +46,6 @@ immediate semantics; canonical normalization maps one to zero before hashing.
 There is no minimum-duration post-filter in V1. Return every positive-duration
 active window. Do not introduce a five-minute minimum to obtain five-minute means.
 
-### 4.2 User-selected initial report cohort
-
-The architecture and state semantics are fixed. The numerical cohort is an
-explicit descriptive cohort, not a validated market boundary. On 2026-09-10 the
-user selected five consecutive entry passes, five exit failures, continuation
-floors at 80% of entry and a spread cap of 125 bps, retaining the strict thresholds
-below. These are the required initial implementation/pilot settings:
-
-| Feature (60s) | Entry | Continuation |
-|---|---|---|
-| `movement_mean_5s_bps_60s` | >= 10 bps | >= 8 bps |
-| `movement_mean_to_spread_60s` | >= 1.5 | >= 1.2 |
-| `trade_rate_60s` | >= 10 trades/s | >= 8 trades/s |
-| `dollar_rate_60s` | >= 5000 dollars/s | >= 4000 dollars/s |
-| `quoted_spread_mean_bps_60s` | > 0 and <= 100 bps | > 0 and <= 125 bps |
-
-Entry confirmation: 5 consecutive strict passes. Exit confirmation: 5 consecutive
-continuation failures. The 80% floors, 125 bps cap and five-second counts are
-user-selected starting choices; they are not empirical findings. No freshness,
-participation or 300s requirement is silently added. The grammar supports those
-features if explicitly requested in a new config.
-
-The complete initial config to implement is below. Unit strings are exact values
-from the existing feature registry; do not substitute display abbreviations:
-
-```json
-{
-  "schema": "tape_cohort_config_v1",
-  "semantics_version": "tape_cohort_hysteresis_v1",
-  "eligibility": "post_discovery_and_requested_zero_masks_v1",
-  "decision_session": "extended_0400_2000_ET",
-  "entry_confirm_seconds": 5,
-  "exit_confirm_seconds": 5,
-  "conditions": [
-    {
-      "feature": "movement_mean_5s_bps_60s", "unit": "bps",
-      "entry": {"lower": 10.0, "lower_inclusive": true, "upper": null, "upper_inclusive": true},
-      "continuation": {"lower": 8.0, "lower_inclusive": true, "upper": null, "upper_inclusive": true}
-    },
-    {
-      "feature": "quoted_spread_mean_bps_60s", "unit": "bps",
-      "entry": {"lower": 0.0, "lower_inclusive": false, "upper": 100.0, "upper_inclusive": true},
-      "continuation": {"lower": 0.0, "lower_inclusive": false, "upper": 125.0, "upper_inclusive": true}
-    },
-    {
-      "feature": "trade_rate_60s", "unit": "trades/second",
-      "entry": {"lower": 10.0, "lower_inclusive": true, "upper": null, "upper_inclusive": true},
-      "continuation": {"lower": 8.0, "lower_inclusive": true, "upper": null, "upper_inclusive": true}
-    },
-    {
-      "feature": "dollar_rate_60s", "unit": "USD/second",
-      "entry": {"lower": 5000.0, "lower_inclusive": true, "upper": null, "upper_inclusive": true},
-      "continuation": {"lower": 4000.0, "lower_inclusive": true, "upper": null, "upper_inclusive": true}
-    },
-    {
-      "feature": "movement_mean_to_spread_60s", "unit": "dimensionless",
-      "entry": {"lower": 1.5, "lower_inclusive": true, "upper": null, "upper_inclusive": true},
-      "continuation": {"lower": 1.2, "lower_inclusive": true, "upper": null, "upper_inclusive": true}
-    }
-  ]
-}
-```
 
 Normalize feature order to `compact_product_schema.FEATURES` order, numbers to
 finite binary64 values, unused inclusivity to true, and zero to positive zero.
@@ -105,26 +54,6 @@ Hash UTF-8 JSON with sorted keys, compact separators, `ensure_ascii=False`, and
 Names, comments, pilot date, release identity, cache path and presentation style
 are not semantic query fields and are excluded from this hash.
 
-A separate study lock records query hash, release identity, pilot/development
-dates, intended reporting dates, config status (`candidate` or `locked`), and user
-selection/approval record. Candidate changes receive new hashes and remain
-available for comparison. Before the six-month prevalence run, lock the exact
-config; do not tune it after examining corpus results. Include pilot/development
-dates in descriptive totals but disclose their use, and optionally report the
-remaining dates separately. This is not an independent predictive validation.
-
-`query_run_hash` binds query hash, release/control hashes, routed membership,
-mode (checkpoint/pilot/range), prefix limits if any, output schema version and
-transitive query implementation/runtime identity. The implementation identity
-hashes a sorted mapping of relative paths to SHA-256 for all new query modules and
-all reused local reader/schema/validation/storage/supervision dependencies, plus
-Python/NumPy/PyArrow/DuckDB versions and output schema hashes. Enumerate that file
-closure in code and test that changing a dependency invalidates result reuse.
-Do not substitute the Git commit alone (the working tree can be dirty), or hash
-unrelated research documents. `window_id` hashes query hash,
-partition identity, entry-confirmed endpoint and per-partition window ordinal.
-Thus a window has the same ID in a pilot and range using the same source/query;
-run identity changes with scope. Cache identity never depends on query thresholds.
 
 ## 5. Endpoint input, eligibility and exact time conventions
 
@@ -360,161 +289,11 @@ endpoints a..b, represented source-second coverage is [a-1s,b), endpoint_count i
 provides the exact one-second strict qualification windows without an endpoint
 corpus. Terminal-only strict qualification is a valid one-endpoint strict run.
 
-## 7. Verified cache, catalog, and date processing
 
-### 7.1 Cache layout and ownership
+## Verified releases and output evidence
 
-Use a user-configurable root, separate from other tasks' scratch:
+The supported local workflow reconciles an explicit expected-member inventory against completed partitions. Duplicate, unexpected, corrupt and missing members fail verification. Partial session-start fixtures require explicit prefix handling and cannot be presented as full-session historical releases. A requested historical release hash remains an optional exact replay constraint; compatible new releases receive their own identities.
 
-```text
-<cache>/
-  cache_owner.json
-  catalog.duckdb
-  cache.lock
-  objects/<feature_sha256>/features.parquet
-  objects/<feature_sha256>/admission.json
-  manifests/<manifest_sha256>.json
-  attempts/<attempt_id>/attempt.json
-  attempts/<attempt_id>/*.partial
-  temp/
-```
+The query emits interval and strict-run artifacts, availability and supply accounting, zero-match members, and concentration evidence. Raw unavailable endpoints are retained in accounting and reach the state machine. The run binds normalized query settings, release identity and installed source/runtime identity. See [reproduction](dataset-build.md) for commands and [architecture](architecture.md) for bounded processing.
 
-Create and validate an owner UUID/root marker. Paths must be root-relative,
-contained beneath the owned root, and free of traversal/symlink escape. A cache
-command never recursively cleans an arbitrary supplied path. An existing root
-without a recognized marker must not be adopted silently.
-
-A single exclusive OS-backed cache lock prevents concurrent mutation/query pin
-races. Release it automatically on process exit; a text PID file alone is not a
-lock. First implementation serializes API commands sharing a cache. Do not hold
-another task's lock or touch its processes. The lock covers catalog transactions,
-view creation, source pinning and query execution. A paused CLI does not leave
-files falsely pinned forever; reconcile prior-run pins under the exclusive lock.
-
-Cache key is full feature object SHA; admission record also binds bytes, schema,
-row count, object key and marker identity. Catalog tables (small control data):
-
-- `source_releases(release_identity PK, control_hashes_json, complete, created_at)`.
-- `source_members(release_identity, partition_identity, session_date, symbol,
-  feature_sha, feature_bytes, manifest_sha, support_sha, metadata_json)`; composite
-  primary key `(release_identity,partition_identity)`, unique `(release_identity,date,symbol)`.
-- `cached_objects(feature_sha PK, relative_path, size_bytes, admission_hash,
-  verified_at, last_used_at, state)`; state is admitted/missing/quarantined.
-- `cache_pins(run_id,feature_sha)` with composite primary key.
-- `query_runs(run_id PK, query_hash, query_run_hash, source_release_identity,
-  mode, state, result_relative_root, manifest_hash)`.
-
-Do not store credentials in these tables. Query manifests belong with results;
-cache eviction must never delete committed query results or their lineage.
-
-### 7.2 Admission and reuse algorithm
-
-For each routed member:
-
-1. Resolve exact metadata through frozen release membership. Fetch the small
-   manifest by its identity on a miss. Verify body SHA/length and compatibility
-   with the accepted calculations, schema hashes and both object identities.
-   Cached manifests may be reused after local hash and compatibility checks.
-2. If features are cached, check local SHA/length and admission binding once per
-   cache object per command before reading. Detect local changes; never rely only
-   on filename, mtime or ETag. Recheck requested-column grid/domain validity during
-   the query scan. An intact warm cache makes zero remote requests.
-3. On miss, reserve bytes, create a private attempt, GET the whole feature object
-   in <=1 MiB blocks while hashing, verify response metadata/body/length. Reject
-   a feature object exceeding the 128 MiB admission cap before transfer. No HEAD
-   is needed when the GET verifies the same facts. No support GET. Normal cold
-   count is two GETs/member: marker and features (fewer when marker cached).
-4. Before admission, inspect full physical schema and row-group metadata. Cache
-   admission covers verified bytes only. During the subsequent query pass, stream keys/context,
-   selected values and masks, validating the canonical grid as each batch arrives.
-   A complete production query must exhaust and verify all 57,600 rows before
-   committing any result. Byte-cache admission is not full semantic acceptance;
-   admission metadata says `body_verified`, with semantic checks recorded in the
-   query result. This avoids a second key-only scan and does not constitute
-   reconstruction. A later structural failure quarantines the cache entry.
-   Reject row groups >25,000, projected chunks >16 MiB uncompressed, or summed
-   projected row-group bytes >64 MiB before decoding. Apply the source reader's
-   exact post-discovery metadata check. Do not recompute features.
-5. Write/hash admission metadata, fsync files, atomically rename within the same
-   filesystem, then commit catalog state. Catalog visibility follows filesystem
-   commit. A crash between these operations leaves a verified orphan that can be
-   reconciled under lock; never expose a .partial file.
-6. Pin while read; unpin and update LRU when done. The first implementation pins
-   at most the current member during a batch query, not every date in the range.
-
-Use finite connection/read timeouts and disable nested unbounded SDK retries.
-At most three attempts for transient reads, delays 1s/5s, each in a new bounded
-private attempt. Identity, schema, coverage and resource failures are not retried.
-Retained failed bytes count toward quota. Exhaustion marks the date failed and
-stops the batch with a nonzero exit; it never converts failure into zero matches.
-
-### 7.3 Quota and eviction
-
-Default cache limit: 1 GiB INCLUDING cached manifests and incomplete attempts.
-Preserve at least 3 GiB filesystem free at all times, including other tasks'
-usage. Before every transfer/output reservation, compare both quota and actual
-free disk. Evict least-recently-used unpinned admitted feature objects only; tie
-break by SHA. Delete only individually cataloged, ownership-checked paths.
-An evicted object is recoverable from its immutable R2 identity. Retain tiny
-lineage controls; keep resident control records within a 64 MiB budget and persist
-additional metadata in the catalog rather than loading it all. Unknown files
-are not evicted.
-
-Routine eviction of this tool's verified downloaded copies is part of its cache
-implementation scope. It does not authorize canonical T/Q deletion, other caches,
-user files, report outputs or any remote deletion. Incomplete/quarantined attempts
-require an explicit `cache reconcile` action before owned deletion/retry; do not
-silently accumulate/retry them. If pinned/retained bytes prevent admission, stop
-with required/available bytes rather than exceeding limits.
-
-### 7.4 Date/range transaction
-
-Process dates ascending and members `(symbol,partition_identity)` ascending. Each
-symbol-day is an independent state-machine input. Each date writes private result
-parts and summaries. Verify complete routed member/row counts, window identities,
-strict-run reconciliation and output hashes; write date manifest last; atomically
-rename the private date directory to its immutable committed path. Add catalog
-reference afterward. One date never needs a date-wide raw-row sort or materialization.
-
-Stream provisional result events to the caller with `date_status=provisional`;
-only `date_committed` makes them accepted. Saved Parquet files are canonical
-outputs; stdout is not a resume ledger. On failure preserve previous committed
-dates, mark the overall run incomplete and exclude the failed date from final
-population claims. Do not report the mean over only successful dates as the
-requested six-month mean. Diagnostic partial summaries must be labeled incomplete.
-
-`--resume` verifies frozen controls/config/code, committed date manifests and all
-result object hashes. Skip committed dates; replay an uncommitted date from its
-first member after reconciling its bounded owned attempt. Do not serialize live
-Python state or resume at an arbitrary raw endpoint. A crash after date rename
-but before catalog transaction is recovered by verifying that date manifest and
-registering it. Detect duplicate membership and competing date commits; never
-merge by directory glob. New dates or corrected partitions require a new run.
-
-### 7.5 DuckDB inspection versus state processing
-
-Create a `tape_endpoints` view from an explicit verified list of currently staged
-paths, never a recursive glob. A `stage-date` command must finish all member
-body admissions plus a bounded full key/context grid validation per member before
-announcing that the SQL view covers the complete requested date. That full-date
-operation requires the approved pilot/range scope; it is not a checkpoint shortcut.
-V1 SQL inspection supports one staged date at a time and pins its files
-for the inspection command; the maximum current date fits within the cache.
-Expose derived query eligibility and source/decision strata as SQL columns.
-`stage-date` prepares/admission-checks files and reports coverage at completion;
-it does not promise indefinite residency after its process exits. `open_date`
-revalidates residency and full key/context grid evidence for its source identity,
-pins the whole date, creates the view and owns the SQL
-inspection session until its context exits. Drop session views before unpinning.
-Do not store an apparently current persistent endpoint view after the session.
-The CLI/API owns exact coverage metadata; eviction cannot make an active SQL
-inspection silently incomplete. If a future date is larger than the cache quota,
-`open_date` fails with required bytes rather than exposing a partial view; the
-streaming production query can still process that date member by member.
-
-Production hysteresis uses the projected Arrow batch iterator in source order.
-DuckDB is not required to express recursive state transitions in SQL. Use DuckDB
-for inspecting endpoints and querying committed window/daily Parquet results.
-Set one thread, 256 MiB memory limit and 256 MiB maximum temp size per connection;
-these are not persisted globally by DuckDB and must be applied every connection.
-Do not use `fetchall()`/Pandas for endpoint data. Result fetches use bounded batches.
+The retained remote cache reader additionally verifies object bodies, schema/grid constraints and release controls before admission; it has explicit cache ownership and quotas. Its historical replay helpers are internal compatibility code. The supported local release command does not require a remote scan, a particular old release hash or an unexplained private selection database.

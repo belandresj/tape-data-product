@@ -1,0 +1,5 @@
+{
+  "selection": "output/screen/selection.jsonl",
+  "api_key_env": "MASSIVE_API_KEY",
+  "retries": 3
+}

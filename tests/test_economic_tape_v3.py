@@ -12,9 +12,8 @@ import pyarrow.parquet as pq
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/"src/04_research"))
-import economic_tape_neighbors_v3 as NN
-import run_economic_tape_v3 as RUN
+from tape_data_product.experiments import economic_tape_neighbors_v3 as NN
+from tape_data_product.experiments import run_economic_tape_v3 as RUN
 V = NN.V3
 
 

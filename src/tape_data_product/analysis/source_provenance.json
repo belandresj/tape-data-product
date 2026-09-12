@@ -1,0 +1,66 @@
+{
+  "schema": "report_source_attribution_v1",
+  "sources": [
+    {
+      "source": "src/04_research/report_plot_selection.py",
+      "sha256": "a0a8f7afbb9efbe1a571810fb421804dfa30cb32dd050e8151b7836d68ec9ef7"
+    },
+    {
+      "source": "src/04_research/report_plot_aggregates.py",
+      "sha256": "2d4f3e2c6892cdfe85c1f6a7b7ee93a08ee787bb7494ab346ab0ca64e88e7d1f"
+    },
+    {
+      "source": "src/04_research/report_plot_render.py",
+      "sha256": "81ee58ec39b93b09346f3ba7bc30019e2ab29b5c70dc2d63eef7ef4e921c35c9"
+    },
+    {
+      "source": "src/04_research/report_plot_export_verify.py",
+      "sha256": "a12e13416e14bb4c5a76c609b0153c64f45d5736027191887d3af015a3ee6120"
+    },
+    {
+      "source": "src/04_research/run_compact_feature_ecdf.py",
+      "sha256": "dd5eb56561172f5dbbafe9c79b7e952416bcc912c0a114c166d8fca391f49ae8"
+    },
+    {
+      "source": "src/04_research/report_numerical_reader.py",
+      "sha256": "0afd8434fa0132ba579f9d8a8278360c862648a8a1e2825937c63e9fb1b99b93"
+    },
+    {
+      "source": "src/04_research/run_report_numerical.py",
+      "sha256": "e217b30ecede847bdb0e582b8251c5f28cfcc334d3d40a54453b4c09c2bb8f5b"
+    },
+    {
+      "source": "src/04_research/pair_atlas_core.py",
+      "sha256": "4c5530f05b0156a29b9310877118ce73c99a89733a27b94ae3e89bfde9813ed6"
+    },
+    {
+      "source": "output/population_share_20260910/plot_population.py",
+      "sha256": "02f2ce11eb28ed6e75ab91b93cafa1aac263af74992ec25c1300f7f3b68ab659"
+    },
+    {
+      "source": "research/tape_comparison_figures_june18_20260911/render_tape_first_comparisons.py",
+      "sha256": "14abd85fd639df86e3ced59c8874f651faaa23e79c152531f71f3a1dc8a1fb54"
+    },
+    {
+      "source": "output/report_numerical_checkpoint_final_20260910/manifest.json",
+      "sha256": "1ebbc1c737236d294a8a67c7deaf6a4e6ce37e61225c5142b9097e168c3ffa3a"
+    },
+    {
+      "source": "research/tape_comparison_figures_june18_20260911/render_tape_comparisons.py",
+      "sha256": "6cc04e6b7ba59d15afdf7977ef14bea61f8bbe616639fdc19c207bca0b520d73"
+    },
+    {
+      "source": "research/tape_comparison_figures_june18_20260911/tape_first_config.json",
+      "sha256": "720419aeb6e206637915bbe7e368a8a3b3ecf0779d6389c27161fab554469d03"
+    },
+    {
+      "source": "research/tape_comparison_figures_june18_20260911/comparisons.json",
+      "sha256": "376957222b671b5d0d8c9767359205f3b4ebeff3a55418a24caa16c4caa4b4df"
+    },
+    {
+      "source": "research/tape_comparison_figures_june18_20260911/output/numerical_summaries.json",
+      "sha256": "63f19b160c7d8c9af15e3b99bab0d93995bba46bb75d62c71b386771d1713cd5"
+    }
+  ],
+  "adaptation": "Normal package imports, verified local release adapter, bounded metadata, installed implementation binding. Historical assets remain imported; new outputs have new identities."
+}

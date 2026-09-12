@@ -4,9 +4,8 @@ import json
 from pathlib import Path
 import sys
 import pytest
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src/04_research'))
-import july_r2_product as J
-import all_feature_month_core as C
+from tape_data_product.features import july_r2_product as J
+from tape_data_product.features import all_feature_month_core as C
 from test_all_feature_month import build_fixture
 from test_r2_tq_storage import FakeClient
 
@@ -127,3 +126,16 @@ def test_catalog_binding_cannot_be_changed(tmp_path):
     with pytest.raises(ValueError,match='catalog hash'):J.validate_catalog(catalog)
     catalog['catalog_hash']=J.digest({k:v for k,v in catalog.items() if k!='catalog_hash'})
     with pytest.raises(ValueError,match='conversions'):J.validate_catalog(catalog)
+
+
+@pytest.fixture(autouse=True)
+def ample_disk_for_small_transaction_fixtures(monkeypatch):
+    """Exercise transactions independently of unrelated host free-space pressure.
+
+    Fixtures write kilobytes; production reserve tests explicitly supply low free
+    capacity to the resource predicates and retain the real reserve constants.
+    """
+    import shutil
+    from collections import namedtuple
+    Usage = namedtuple('Usage', 'total used free')
+    monkeypatch.setattr(shutil, 'disk_usage', lambda path: Usage(100*1024**3, 10*1024**3, 90*1024**3))

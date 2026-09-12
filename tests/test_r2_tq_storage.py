@@ -10,12 +10,7 @@ import pyarrow.parquet as pq
 import pytest
 
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "src/01_data/r2_tq_storage.py"
-SPEC = importlib.util.spec_from_file_location("r2_tq_storage", MODULE_PATH)
-assert SPEC and SPEC.loader
-storage = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = storage
-SPEC.loader.exec_module(storage)
+from tape_data_product.storage import r2_tq_storage as storage
 
 
 def parquet_bytes(path: Path, values: list[int]) -> bytes:

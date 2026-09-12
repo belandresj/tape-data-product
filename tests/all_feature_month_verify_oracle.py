@@ -11,7 +11,7 @@ import bisect
 import json
 import math
 import pyarrow.parquet as pq
-from all_feature_month_schema import FEATURES, HORIZONS, REGISTRY, REASONS, VERSION, schema
+from tape_data_product.features.all_feature_month_schema import FEATURES, HORIZONS, REGISTRY, REASONS, VERSION, schema
 
 NS=10**9
 
@@ -212,7 +212,7 @@ class Reference:
 def verify(path,day,symbol,expected_rows,reader,start,check=lambda:None,trace_ends=()):
     pf=pq.ParquetFile(path);meta=json.loads((pf.schema_arrow.metadata or {}).get(b'eda',b'{}'))
     if meta.get('version')!=VERSION:raise ValueError('old or missing output version')
-    from all_feature_month_core import final_columns
+    from tape_data_product.features.all_feature_month_core import final_columns
     columns=final_columns()
     if set(pf.schema_arrow.names)!=set(columns) or not pf.schema_arrow.remove_metadata().equals(schema(pf.schema_arrow.names,{}).remove_metadata()):raise ValueError('V2 explicit schema membership/type mismatch')
     counts=Counter();summary=Summary();reference=Reference();traces=[];n=0

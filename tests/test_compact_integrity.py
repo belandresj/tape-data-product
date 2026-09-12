@@ -2,14 +2,13 @@
 from pathlib import Path
 import sys,json
 import pytest
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src/04_research'))
-import compact_product as P
-import compact_product_runtime as R
-import compact_product_storage as STORE
+from tape_data_product.features import compact_product as P
+from tape_data_product.features import compact_product_runtime as R
+from tape_data_product.features import compact_product_storage as STORE
 from test_direct_frozen_product import metadata
 from test_all_feature_month import build_fixture
 from test_july_r2_product import Client
-import july_r2_product as J
+from tape_data_product.features import july_r2_product as J
 
 
 def fixture(tmp_path,n=12):
@@ -117,3 +116,16 @@ def test_drain_finishes_active_work_without_new_admission(tmp_path):
     assert sorted(calls)==['A','B']
     status=R.read(root/'run_status.json');assert status['state']=='drained'
     assert status['counts']=={'complete':2,'pending':1}
+
+
+@pytest.fixture(autouse=True)
+def ample_disk_for_small_transaction_fixtures(monkeypatch):
+    """Exercise transactions independently of unrelated host free-space pressure.
+
+    Fixtures write kilobytes; production reserve tests explicitly supply low free
+    capacity to the resource predicates and retain the real reserve constants.
+    """
+    import shutil
+    from collections import namedtuple
+    Usage = namedtuple('Usage', 'total used free')
+    monkeypatch.setattr(shutil, 'disk_usage', lambda path: Usage(100*1024**3, 10*1024**3, 90*1024**3))

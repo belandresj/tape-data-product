@@ -1,27 +1,46 @@
-# Architecture and source map
+# Architecture and design
 
-The maintained core turns normalized SIP trades and NBBO quotes into one-second observations containing eighteen trailing 60s/300s measurements and their quality context. Start with the [dataset build guide](dataset-build.md) for the complete workflow and its current gaps.
+The installed `tape_data_product` package connects historical reference membership and minute screening to canonical SIP trade/NBBO quote pairs, compact features, verified releases, causal queries and report analysis. The [reproduction guide](dataset-build.md) is the supported workflow; the root README remains the research report.
 
-| Layer | Main files | Responsibility |
+| Package | Responsibility |
+|---|---|
+| `acquisition` | Explicit provider requests, reference eligibility, consecutive-minute screening and bounded event normalization |
+| `storage` | Canonical pair inventories, exact object identities, local verification and explicit R2 transfer |
+| `features` | Event populations, one-second measurements, rolling estimates, compact schemas, integrity and independent reconstruction |
+| `query` | Expected release membership, verified projected reads and causal interval state |
+| `experiments` | Versioned descriptive threshold-query comparisons |
+| `analysis` | Horizon-specific report populations, distributions, numerical intermediates and offline figures |
+| `stages` | Effective settings, installed source/runtime identity and immutable output receipts |
+| `cli`, `demo` | Stage dispatch and a connected invented workflow |
+
+Parquet objects and indexed catalogs are the database. A separate database server would add operations without improving this batch research workflow. Local storage supports the whole calculation path; Cloudflare R2 is the durable cross-repository object store for authorized historical inputs.
+
+## Semantics and provenance
+
+Each second-ending row summarizes `[t−1s,t)`; exact-endpoint events enter the following row. The eighteen features retain their [equations and support rules](tape_data_product/README.md). The query receives every endpoint, including economic failures and unavailable measurements; removing those rows before state processing would corrupt confirmation and exits.
+
+Calculation integrity and numerical reconstruction are distinct checks. Integrity binds byte lengths, SHA-256, schemas, row counts and completion metadata. Reconstruction derives the feature values from stored one-second support and compares values, native nulls and masks. Neither establishes predictive power or executable expectancy.
+
+The installed package contains the numerical engines and reference reducers required by regression tests. Historical module names remain where they identify an algorithm or validation lineage; the supported entry points are the domain APIs and CLI. Current semantic metadata replaces dependencies on old implementation prose. Historical digests identify the source definitions; new source and runtime identities identify migrated execution. Existing report images and manifests retain their historical attribution and are never relabeled as output from the installed package.
+
+`stage.json` records the stage schema, explicit inputs, effective parameters, all declared output identities, validation evidence and a transitive installed-code/runtime identity, including the installed runtime dependency closure. Large membership and observation tables remain separate on disk. Domain manifests enforce additional completeness and schema checks. A changed material dependency requires a new run identity, even if numerical results are unchanged.
+
+## Resource bounds
+
+Let U be reference/minute records, E trade-plus-quote events, N output seconds, F the fixed feature count, H≤300 the rolling horizon, K query conditions and C release members.
+
+| Stage | Time / disk growth | Resident state |
 |---|---|---|
-| Source events | [Market-state decoder](../src/02_preprocessing/build_market_state.py) | Quote validity, SIP ordering, trade eligibility, and continuity semantics |
-| Feature calculation | [Direct calculator](../src/03_features/direct_frozen_product.py) | Stream quote/trade inputs into bounded rolling feature and support rows |
-| Product output | [Compact writer](../src/04_research/compact_product.py), [schema](../src/04_research/compact_product_schema.py) | Write features, support measurements, identities, and completion evidence; validate structure and optionally reconstruct numerical values |
-| Build orchestration | [Direct runner](../src/04_research/run_direct_frozen_product.py), [inventory bridge](../src/04_research/compact_product_inventory.py), [runtime](../src/04_research/compact_product_runtime.py) | Consume prepared selection inventories, route existing or raw inputs, supervise workers, and record completion |
-| Storage | [R2 helpers](../src/01_data/r2_tq_storage.py), [compact storage](../src/04_research/compact_product_storage.py) | Verified bounded staging and immutable publication when explicitly requested |
-| Release inventory | [Release inventory](../src/04_research/report_release_inventory.py) | Capture/freeze accepted published membership from supplied controls |
-| Historical queries | [Cohort runner](../src/04_research/run_tape_cohort_query.py), `tape_cohort_*.py` | Read compact features and apply explicit entry/continuation rules; not validated trading signals |
-| Independent checks | [Reconstruction](../src/04_research/all_feature_month_verify.py), [tests](../tests/test_direct_frozen_product.py) | Check numerical reconstruction, reference parity, and boundary behavior |
+| Acquisition/screen | O(U) in order; external ordering O(U log U) | Capped response pages/bytes, a batch and indexed on-disk membership |
+| Event normalization/storage | O(E + bytes), sorting O(E log E) | Bounded sort buffers/spill, projected batches and transfer blocks |
+| Feature calculation | O(E + N·F + N·H), O(N) output | Input/output batches, fixed rolling histories and Arrow/compression buffers |
+| Reconstruction/query | O(N log H) / O(N·K) | Fixed histories/state, projected batches and bounded result writers |
+| Release reconciliation | O(C log C), O(C) disk | Indexed membership controls |
+| Report aggregation | Histograms O(N·F); exact ECDF ordering O(F·N log N) | Fixed histograms, capped database sort/spill and bounded fetches |
+| Rendering | Bounded display points/bins | One figure canvas and reduced display representation at a time |
 
-Numbered source directories and historical module names are retained to preserve imports and implementation identities. Older rolling/economic reducers and all-feature, July, preview, snapshot, and inventory helpers are transitive calculation, reader, provenance, or regression dependencies. Their presence does not mean their historical methodology is part of the current feature contract.
+Projected reads default to 4,096 rows and never exceed 25,000; the calculator's output cap remains 12,288 rows. Data work runs sequentially on the 8 GiB development machine. The monitoring script samples worker and descendant RSS every 50 ms and terminates its owned tree at 768 MiB for ordinary synthetic verification. Production work targets ≤2 GiB RSS and must stop below 3 GiB, with headroom for sampling delay.
 
-## Specifications that are code dependencies
+Before full external-data acceptance, run the exact production path on a representative session-start prefix, measure rows/time/RSS/transfer/spill, project the full run and obtain confirmation. A mid-session slice without prior state does not reproduce mature rolling history. Passing unit tests supplies no full-data resource acceptance.
 
-The following older specifications are read and hashed by retained code:
-
-- [Rolling tape V2](rolling_tape/rolling_tape_state_v2_feature_spec.md): read by `build_rolling_tape_state_v2.py`.
-- [Economic tape V3](tape_characterization_v3/tape_characterization_v3_model.md) and its [pilot specification](tape_characterization_v3/pilot_implementation_spec.md): included with the rolling specification in `economic_tape_state_v3.py` provenance.
-
-All three are also included in the cohort pipeline’s implementation identity. Keep these paths intact until a separately tested identity migration replaces that dependency. They are supporting historical specifications, not alternative definitions of the current [feature contract](tape_data_product/README.md).
-
-The [initial extraction provenance](provenance/README.md) records how this code was selected. Current numerical behavior must be assessed against the code and tests, not inferred from the extraction inventory.
+Report extraction additionally caps member metadata at 10,000 members and each member writer at 1,024 row groups. Separate member writers prevent Arrow footer metadata from growing with corpus rows; the ordinary 4,096-row batch needs at most 15 groups for a full session.

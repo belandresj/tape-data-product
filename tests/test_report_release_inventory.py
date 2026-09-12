@@ -6,11 +6,10 @@ import sys
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/04_research'))
-import compact_preview_reader as READER
-import compact_product as P
-import compact_product_schema as S
-import report_release_inventory as R
+from tape_data_product.features import compact_preview_reader as READER
+from tape_data_product.features import compact_product as P
+from tape_data_product.features import compact_product_schema as S
+from tape_data_product.query import report_release_inventory as R
 
 
 DAY = '2026-03-09'
@@ -65,7 +64,7 @@ def refresh_marker(record):
 
 
 def entry(record):
-    import compact_preview_inventory as I
+    from tape_data_product.features import compact_preview_inventory as I
     return I.entry_from_record(record)
 
 

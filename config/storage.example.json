@@ -1,0 +1,7 @@
+{
+  "endpoint_url": "https://ACCOUNT_ID.r2.cloudflarestorage.com",
+  "bucket": "massive-equities",
+  "access_key_env": "R2_ACCESS_KEY_ID",
+  "secret_key_env": "R2_SECRET_ACCESS_KEY",
+  "max_stage_bytes": 536870912
+}

@@ -1,0 +1,27 @@
+{
+  "version": "acquisition_recovery_v1",
+  "source_repository": "tape-characterization",
+  "implementation": "Standalone bounded extraction; historical screening predicates and canonical schemas preserved. Controller orchestration, personal paths and implicit publication removed.",
+  "sources": [
+    {
+      "path": "src/04_research/minute_filter_runtime.py",
+      "sha256": "ecce6ebaacfb9a3fc12bfa9b874c2fd5d3a6793d77b2a0ac80a6677a6290957d"
+    },
+    {
+      "path": "src/04_research/run_minute_volatility_grid.py",
+      "sha256": "c58d369cbd2f49eab1d3a8f4b13a5fe17b8d211fddec450a1f79868f0b263722"
+    },
+    {
+      "path": "src/01_data/tq_acquisition_runtime.py",
+      "sha256": "369f1dec6627db4f9ef82a583490365e094fa9c75a3d5c1a02cc4b319e1745a8"
+    },
+    {
+      "path": "src/01_data/download_tick_data.py",
+      "sha256": "7d22d04c7f33fd46f1856b37ecffaefc660fc22d0c50a45f23edc6f211abf539"
+    },
+    {
+      "path": "src/01_data/r2_tq_storage.py",
+      "sha256": "5ab0e7312720e00588f8d171aec00097d40606edba2357f09c4a450a1d0ed958"
+    }
+  ]
+}

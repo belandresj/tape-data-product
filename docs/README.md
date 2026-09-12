@@ -1,18 +1,18 @@
 # Documentation
 
-Start with the [project report](../README.md) for dataset coverage, feature definitions, and descriptive findings.
+Start with the [full research report](../README.md) for the historical findings and limitations, then follow [dataset build and reproduction](dataset-build.md) to run the installed product.
 
-| Document | Purpose |
+| Document | Reader-facing purpose |
 |---|---|
-| [Dataset build and reproduction](dataset-build.md) | What can be rebuilt now, the actual calculation path, and missing acquisition/report stages |
-| [Developer guide](developer-guide.md) | Installation, synthetic example, and development commands |
-| [Feature contract](tape_data_product/README.md) | Exact 60s/300s definitions, timing, and eligibility rules |
-| [Compact layout](compact-layout.md) | Stored fields, masks, validation, and complexity |
-| [Architecture](architecture.md) | Source-code responsibilities and why older dependencies remain |
-| [Data access](data-access.md) | Private inputs and the existing historical feature-retrieval workflow |
-| [Query contract](query-contract.md) | Existing exploratory cohort mechanics; no claim of validated retrieval usefulness |
-| [Technical supplement](../reports/technical-supplement.md) | Report accounting and figure-source verification |
-| [Verification](verification/README.md) | Dated synthetic evidence and repeatable bounded checks |
-| [Provenance](provenance/README.md) | Initial source extraction and later report-asset identities |
-
-The `rolling_tape/` and `tape_characterization_v3/` documents are hash-bound supporting specifications used by retained code. They are not the current product contract; see the architecture document before moving or editing them.
+| [Reproduction guide](dataset-build.md) | Installation, complete offline demonstration and stage commands |
+| [Acquisition and storage](acquisition.md) | Reference eligibility, screen, canonical source inputs and explicit R2 operations |
+| [Feature contract](tape_data_product/README.md) | Equations, populations, clocks, support and zero/null rules |
+| [Compact layout](compact-layout.md) | Physical fields, masks and validation |
+| [Query contract](query-contract.md) | Configuration and causal entry/exit timing |
+| [Architecture](architecture.md) | Package boundaries, provenance and resource design |
+| [Report lineage](report-lineage.md) | Every figure's source, numerical intermediate and reproduction status |
+| [Data access](data-access.md) | Historical input identities and access requirements |
+| [Technical supplement](../reports/technical-supplement.md) | Historical counts and figure accounting |
+| [Verification](verification/README.md) | Executed checks, measured resources and acceptance limitations |
+| [Development](developer-guide.md) | Regression and content-review commands |
+| [Provenance](provenance/README.md) | Historical versus migrated identities |
