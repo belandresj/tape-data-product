@@ -18,3 +18,6 @@ output/
 *.log
 # Local extraction receipts remain private; maintained evidence lives under docs/.
 handoff/
+
+# Private operational evidence and disposable working notes.
+/local_docs/

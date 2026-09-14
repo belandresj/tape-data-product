@@ -4,7 +4,7 @@ Supporting definitions, observation-status counts, and figure verification for t
 
 ## Feature Contract and Eligibility
 
-The [Tape Data Product feature contract](../docs/tape_data_product/README.md) provides exact equations, source clocks, support requirements, reset behavior, and zero/null semantics for this product. The movement calculation retains 56 candidate overlapping changes at 60s and 296 at 300s under its defined window convention.
+The [Tape Data Product V1 feature contract](../docs/reference/v1/feature-contract.md) provides exact equations, source clocks, support requirements, reset behavior, and zero/null semantics for the legacy product. The movement calculation retains 56 candidate overlapping changes at 60s and 296 at 300s under its defined window convention.
 
 Midpoint observation status distinguishes exact known age, an observed period without a change that supplies only a lower bound, and unobservable time. The table below reports endpoint counts in the active trading population, separately for each horizon’s selection. Status is an endpoint observation; the horizon changes which endpoints are selected, not the definition of status.
 

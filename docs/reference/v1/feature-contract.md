@@ -2,7 +2,7 @@
 
 Contract identity: `tape_data_product_v1`. Compact physical layout: `tape_product_compact_v1`. The retained calculator, compact writer and causal query implement the compact 60s/300s feature product. The standalone verification uses synthetic fixtures; this does not assert that real data were regenerated or that every historical methodology is implemented. The equations and feature definitions below are preserved from the source contract.
 
-See [layout and validation](../compact-layout.md), [query behavior](../query-contract.md), and [data access](../data-access.md). Packaged semantic metadata preserves historical definition identities without requiring implementation documents at runtime.
+See [layout and validation](compact-layout.md), [query behavior](query-contract.md), and [data access](../../data-access.md). Packaged semantic metadata preserves historical definition identities without requiring implementation documents at runtime.
 
 ## Product goal
 
@@ -120,4 +120,4 @@ The mean source conversion is `midpoint_movement_bps_per_30s_{H}s / 6`; the mult
 
 Changes to a normative equation, population, clock, support gate, denominator, zero/null rule or membership require a contract revision and matching tests and identities. Integrity, independent numerical reconstruction and external-data acceptance remain separate claims.
 
-Canonical raw storage and acquisition are documented in [acquisition](../acquisition.md). The durable store is Cloudflare R2; local storage remains usable for every calculation stage. Current resource bounds and measured acceptance are in [architecture](../architecture.md) and [verification](../verification/README.md). Full external-data runs require a representative production-path measurement and confirmation; this contract does not itself establish memory compliance.
+Canonical raw storage and acquisition are documented in [acquisition](../../acquisition.md). The durable store is Cloudflare R2; local storage remains usable for every calculation stage. Current resource bounds are in [architecture](../../architecture.md), and the legacy V1 acceptance measurements are retained in the [verification record](../../../reports/verification/legacy-v1/README.md). Full external-data runs require a representative production-path measurement and confirmation; this contract does not itself establish memory compliance.

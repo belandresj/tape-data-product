@@ -24,11 +24,30 @@ For live RSS observation, run from the source checkout:
 python -B scripts/measure.py output/demo-resources.json tape-product demo --output output/measured-demo
 ```
 
+To check installed-package isolation, use the non-editable installation above and
+run from a fresh directory outside the checkout. The wrapper rejects Python
+network calls, subprocess launches, and reads beneath the specified checkout;
+repeat `--forbid` for any other source trees. It does not load the test suite.
+
+```sh
+checkout="$PWD"
+isolated_run="$(mktemp -d)"
+cd "$isolated_run"
+python -B "$checkout/scripts/measure.py" demo-resources.json \
+  python -B "$checkout/scripts/offline_run.py" --forbid "$checkout" -- demo --output demo
+tape-product report verify --input demo/figures
+cd "$checkout"
+```
+
+The wheel carries runtime code and semantic JSON resources. The source archive
+also carries this report, its figures, configurations, scripts, and all test
+helpers. The Git-index submission check requires a Git checkout.
+
 Inspect `summary.json`, the `query` results, `analysis` numerical intermediates, `figures`, and each `stage.json`. Stage receipts bind effective inputs/settings, installed implementation/runtime identities and output files. Hash checks and independent numerical reconstruction answer different questions; neither validates trading expectancy.
 
 ## Individual stages
 
-Commands accept explicit paths. Relative command paths resolve against the working directory; release member paths resolve against the containing manifest directory. JSON configuration paths follow the stage-specific rules in [acquisition](acquisition.md) and [report lineage](report-lineage.md). CLI `--help` is the authoritative argument reference.
+Commands accept explicit paths. Relative command paths resolve against the working directory; release member paths resolve against the containing manifest directory. JSON configuration paths follow the stage-specific rules in [acquisition](acquisition.md) and [report lineage](../reports/report-lineage.md). CLI `--help` is the authoritative argument reference.
 
 ### 1. Acquire reference membership and minute bars
 
@@ -67,7 +86,7 @@ The optional context JSONL contains records with `session_date`, `symbol`, `halt
 
 For a single prepared pair, the alternative direct interface accepts `--quotes`, `--trades`, `--pair-manifest`, `--session-date`, `--symbol`, `--discovery`, `--halts` and `--continuity-breaks`. Its discovery JSON must be the exact screening selection record stored in the acquired pair. These direct flags cannot be mixed with `--inventory`; inspect `features build --help` for the full argument contract.
 
-Each partition contains `features.parquet`, `support.parquet` and a completion manifest. All eighteen fields, masks and support rules follow the [feature contract](tape_data_product/README.md). `verify` checks integrity; `--reconstruction` additionally checks numerical reconstruction from stored support. The inventory build also saves a child-manifest ledger and stage receipt; missing children cannot silently shrink the expected release.
+Each partition contains `features.parquet`, `support.parquet` and a completion manifest. All eighteen fields, masks and support rules follow the [V1 feature contract](reference/v1/feature-contract.md). `verify` checks integrity; `--reconstruction` additionally checks numerical reconstruction from stored support. The inventory build also saves a child-manifest ledger and stage receipt; missing children cannot silently shrink the expected release.
 
 ### 4. Reconcile a release
 
@@ -89,9 +108,9 @@ tape-product query --release output/release \
 tape-product experiment threshold-pilot --release private/accepted-release --output output/pilot
 ```
 
-Query output includes strict endpoint runs, causally activated intervals, per-window features, unavailable/available accounting, zero-match members and concentration. Every endpoint reaches the state machine. Five consecutive passes confirm entry at the fifth endpoint; economic exit confirmation does not backdate the exit. Halts, unavailable data and continuity breaks exit immediately. See the [query contract](query-contract.md).
+Query output includes strict endpoint runs, causally activated intervals, per-window features, unavailable/available accounting, zero-match members and concentration. Every endpoint reaches the state machine. Five consecutive passes confirm entry at the fifth endpoint; economic exit confirmation does not backdate the exit. Halts, unavailable data and continuity breaks exit immediately. See the [V1 query contract](reference/v1/query-contract.md).
 
-The threshold pilot reproduces the fixed A–D participation comparisons and five development dates documented in [pilot results](../reports/pilot.md), using supplied accepted data. It does not tune thresholds. The separate estimator/persistence experiment awaits a stable source/test/configuration/result/renderer handoff and is not claimed as implemented here.
+The threshold pilot reproduces the fixed A–D participation comparisons and five development dates documented in [pilot results](../reports/pilot.md), using supplied accepted data. It does not tune thresholds.
 
 ### 6. Aggregate and render the report
 
@@ -104,7 +123,7 @@ tape-product report verify --input output/figures
 
 Aggregation uses horizon-specific activity gates and per-panel eligibility, fixed histograms and bounded external ordering for exact ECDFs. Saved intermediates preserve zeros, ties, off-axis mass, denominators and concentration. Rendering reads only those intermediates and can be repeated without T/Q acquisition or a remote scan.
 
-The [report lineage table](report-lineage.md) identifies each of the seven published figures and headline tables, required historical inputs, exact example intervals, code paths and verification status. Missing historical numerical inputs remain missing; no values are inferred from figure pixels.
+The [report lineage table](../reports/report-lineage.md) identifies each of the seven published figures and headline tables, required historical inputs, exact example intervals, code paths and verification status. Missing historical numerical inputs remain missing; no values are inferred from figure pixels.
 
 ## Skip stages when verified inputs already exist
 
@@ -112,6 +131,6 @@ Accepted canonical T/Q pairs plus discovery and overlay context allow starting a
 
 ## Resource checkpoint and evidence
 
-The [architecture](architecture.md) states time/memory/disk bounds. Inputs are projected in batches ≤25,000 rows (4,096 default), histories are bounded and exact distribution sorting spills to disk. Ordinary synthetic checks run sequentially under a 768 MiB process-tree stop with 50 ms sampling. See [verification](verification/README.md) for actual measurements and tested environments.
+The [architecture](architecture.md) states time/memory/disk bounds. Inputs are projected in batches ≤25,000 rows (4,096 default), histories are bounded and exact distribution sorting spills to disk. Ordinary synthetic checks run sequentially under a 768 MiB process-tree stop with 50 ms sampling. See the [legacy V1 verification record](../reports/verification/legacy-v1/README.md) for the recorded measurements and tested environment.
 
 Before any full external symbol-day, week, corpus or external-drive acceptance: inspect allocations; measure the exact final production path on a representative session-start prefix/member set; record input rows, elapsed time, peak worker-plus-descendant RSS, transferred bytes and spill/output disk; project full-run costs; then obtain confirmation. A random mid-session slice does not supply mature rolling state. No full historical run, bulk acquisition, upload/delete or publication is part of offline acceptance.

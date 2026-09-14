@@ -8,7 +8,7 @@ historical observations or an executable trading edge.
 
 ## Run the analysis stages
 
-Follow [dataset-build.md](dataset-build.md) to produce a verified local release
+Follow [dataset-build.md](../docs/dataset-build.md) to produce a verified local release
 and screening stages. Then run:
 
 ```sh
@@ -129,4 +129,4 @@ capped at 10,000 members and population at 10,000 dates. Tape extraction is
 O(T+Q) through each slice end, with 600 fixed counters and a hard 250,000 display
 events per stream per pair. It fails instead of silently subsampling events.
 
-The final fresh-wheel demonstration ran outside the checkout with network and source-access guards, generating 1,440 feature endpoints, 21,600 trade rows, 1,442 quote rows and seven verified figures in 24.395 seconds at 300.44 MiB peak process-tree RSS (50 ms samples). See [verification](verification/README.md) for exact evidence. These are synthetic measurements; no full historical scan has been measured or accepted. Before any full external run, measure the exact production path on an accepted session-start sample and obtain the separate full-run confirmation.
+The final fresh-wheel demonstration ran outside the checkout with network and source-access guards, generating 1,440 feature endpoints, 21,600 trade rows, 1,442 quote rows and seven verified figures in 24.395 seconds at 300.44 MiB peak process-tree RSS (50 ms samples). See the [legacy V1 verification record](verification/legacy-v1/README.md) for exact evidence. These are synthetic measurements; no full historical scan has been measured or accepted. Before any full external run, measure the exact production path on an accepted session-start sample and obtain the separate full-run confirmation.

@@ -4,7 +4,7 @@ The implemented semantics are `tape_cohort_hysteresis_v1`. The installed query r
 
 ## Configuration
 
-The [selected 300s configuration](../config/tape_cohort_300s_ms3_p050_selected_v1.json) uses five consecutive entry passes and five consecutive continuation failures:
+The [selected 300s configuration](../../../config/tape_cohort_300s_ms3_p050_selected_v1.json) uses five consecutive entry passes and five consecutive continuation failures:
 
 | Feature | Entry | Continuation |
 |---|---:|---:|
@@ -15,7 +15,7 @@ The [selected 300s configuration](../config/tape_cohort_300s_ms3_p050_selected_v
 | Movement/spread | ≥3.0 | ≥2.4 |
 | Movement participation | ≥0.50 | ≥0.40 |
 
-These thresholds were selected using the [five-date development pilot](../reports/pilot.md). They are not independently validated predictive boundaries. Mixed horizons and alternative explicit thresholds remain supported by the grammar.
+These thresholds were selected using the [five-date development pilot](../../../reports/pilot.md). They are not independently validated predictive boundaries. Mixed horizons and alternative explicit thresholds remain supported by the grammar.
 
 ### Supported grammar
 
@@ -294,6 +294,6 @@ corpus. Terminal-only strict qualification is a valid one-endpoint strict run.
 
 The supported local workflow reconciles an explicit expected-member inventory against completed partitions. Duplicate, unexpected, corrupt and missing members fail verification. Partial session-start fixtures require explicit prefix handling and cannot be presented as full-session historical releases. A requested historical release hash remains an optional exact replay constraint; compatible new releases receive their own identities.
 
-The query emits interval and strict-run artifacts, availability and supply accounting, zero-match members, and concentration evidence. Raw unavailable endpoints are retained in accounting and reach the state machine. The run binds normalized query settings, release identity and installed source/runtime identity. See [reproduction](dataset-build.md) for commands and [architecture](architecture.md) for bounded processing.
+The query emits interval and strict-run artifacts, availability and supply accounting, zero-match members, and concentration evidence. Raw unavailable endpoints are retained in accounting and reach the state machine. The run binds normalized query settings, release identity and installed source/runtime identity. See [reproduction](../../dataset-build.md) for commands and [architecture](../../architecture.md) for bounded processing.
 
 The retained remote cache reader additionally verifies object bodies, schema/grid constraints and release controls before admission; it has explicit cache ownership and quotas. Its historical replay helpers are internal compatibility code. The supported local release command does not require a remote scan, a particular old release hash or an unexplained private selection database.

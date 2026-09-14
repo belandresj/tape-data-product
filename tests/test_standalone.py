@@ -1,5 +1,4 @@
 """Portability and identity regressions introduced by curation."""
-import ast
 import importlib
 from pathlib import Path
 import sys
@@ -28,10 +27,12 @@ def test_selected_config_hash_and_schema_identity_are_preserved():
     assert schema.schema_hash(schema.SUPPORT_SCHEMA)==schema.SUPPORT_SCHEMA_HASH
 
 
-def test_imported_product_modules_resolve_inside_checkout():
+def test_imported_product_modules_resolve_inside_installed_package():
+    import tape_data_product
+
+    package = Path(tape_data_product.__file__).resolve().parent
     for name in ('run_tape_cohort_query','run_direct_frozen_product','verify_tape_cohort_query'):
         importlib.import_module('tape_data_product.' + ('features.' if name == 'run_direct_frozen_product' else 'query.') + name)
-    local_names={p.stem for p in (ROOT/'src').rglob('*.py')}
     for name,module in list(sys.modules.items()):
         if (name == 'tape_data_product' or name.startswith('tape_data_product.')) and getattr(module,'__file__',None):
-            assert ROOT in Path(module.__file__).resolve().parents, name
+            assert Path(module.__file__).resolve().is_relative_to(package), name

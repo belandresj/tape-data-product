@@ -8,9 +8,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - run: python -m pip install '.[dev]'
+      - run: python -m pip install setuptools==80.9.0
+      - run: python -m pip wheel --no-build-isolation --no-deps . --wheel-dir dist
+      - run: python -m pip install --require-hashes -r config/vps-python313-linux.lock
+      - run: python -m pip install --no-deps dist/*.whl
       - run: python -B scripts/measure.py output/ci-tests.json python -B -m pytest -q
-      - run: python -B scripts/measure.py output/ci-demo.json tape-product demo --output output/ci-demo
+      - run: python -c "import matplotlib.font_manager"
+        env:
+          MPLBACKEND: Agg
+      - run: |
+          checkout="$PWD"
+          cd "$(mktemp -d)"
+          python -B "$checkout/scripts/measure.py" "$checkout/output/ci-demo.json" \
+            python -B "$checkout/scripts/offline_run.py" --forbid "$checkout" -- demo --output demo
         env:
           MPLBACKEND: Agg
           OMP_NUM_THREADS: '1'

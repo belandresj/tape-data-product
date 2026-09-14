@@ -2,6 +2,8 @@
 
 *One-second measurements of intraday movement, trading activity, and quoted liquidity.*
 
+The figures and statistics below are preserved historical results; this package has not yet regenerated the historical study. Start with the [reproduction guide](docs/dataset-build.md) to install the package and run the complete offline demonstration on synthetic inputs. [Historical input requirements](docs/data-access.md) identify what is needed to reproduce the empirical results.
+
 ## 1. Introduction
 
 This historical dataset converts U.S. equity trades and national best bid and offer (NBBO) quotes into continuous measurements of intraday trading conditions. This report describes the feature dataset and its use for historical analysis. Researchers can define selections using movement magnitude, quoted spread, trading activity, movement concentration, and trade/quote event freshness.
@@ -182,4 +184,4 @@ NBBO quotes describe consolidated top-of-book prices and displayed size. They do
 
 The report establishes the dataset’s coverage, measurement definitions, and descriptive structure. It does not establish that selected conditions persist into the future, forecast direction, or produce positive trading expectancy. Those claims require separate evaluation with explicit timing, execution, and cost assumptions.
 
-**Technical documentation and supporting data.** The [feature contract](docs/tape_data_product/README.md) provides exact definitions and calculation rules. The [technical supplement](reports/technical-supplement.md) contains observation-status counts, plotting notes, and links to the supporting data and verification records. For installation, synthetic examples, and implementation details, see the [developer guide](docs/developer-guide.md). The [dataset build guide](docs/dataset-build.md) provides the installed acquisition-to-report workflow, complete offline demonstration and requirements for historical reproduction.
+**Technical documentation and supporting data.** The [V1 feature contract](docs/reference/v1/feature-contract.md) provides exact definitions and calculation rules for the currently implemented legacy product. The [technical supplement](reports/technical-supplement.md) contains observation-status counts, plotting notes, and links to the supporting data and verification records. For installation, synthetic examples, and implementation details, see the [developer guide](docs/developer-guide.md). The [dataset build guide](docs/dataset-build.md) provides the installed acquisition-to-report workflow, complete offline demonstration and requirements for historical reproduction.
