@@ -237,7 +237,7 @@ def build_base_partition(source_pair, member_context, output, *, config=DEFAULT_
                 "coverage":context["coverage"], "inputs":{"source_pair_sha256":sha256_file(source_pair)[0],"context_sha256":sha256_file(member_context)[0],
                     "streams":pair["streams"]}, "source_units":pair["source_units"], "contract_identity":contract_identity(config),
                 "base_compatibility":_base_compatibility(pair, config, implementation), "implementation_identity":implementation,
-                "outputs":records, "validation":{"integrity":"passed","consumption":"consumption_verified","independent_reconstruction":"pending"}, "complete":True}
+                "contract_config":config.to_dict(), "outputs":records, "validation":{"integrity":"passed","consumption":"consumption_verified","independent_reconstruction":"pending"}, "complete":True}
             write_atomic_json(attempt/"manifest.json", manifest)
             _verify_source(pair, root)
             verify_base_partition(attempt)
@@ -357,14 +357,16 @@ def _integrate(state,a,b,bs,asks,ss,bis,ais,pd,sd,bid,aid,observed,gaps):
 
 def verify_base_partition(root):
     root=Path(root); manifest=read_json(root/"manifest.json")
-    required={"manifest_version","member","coverage","inputs","source_units","contract_identity","base_compatibility","implementation_identity","outputs","validation","complete"}
+    required={"manifest_version","member","coverage","inputs","source_units","contract_identity","contract_config","base_compatibility","implementation_identity","outputs","validation","complete"}
     if set(manifest)!=required or manifest["manifest_version"]!="tape_member_manifest_v1" or manifest["complete"] is not True:
         raise ContractError("invalid base manifest")
     records={r["path"]:r for r in manifest["outputs"]}
     if set(records)!={"base.parquet","context.json"}: raise ContractError("base companions missing")
     context_path=verify_output(root,records["context.json"]);context=read_json(context_path)
+    stored_config=FeatureConfig.from_dict(manifest["contract_config"])
     if (context["member"]!=f'{manifest["member"]["session_date"]}/{manifest["member"]["symbol"]}'
             or context["coverage"]!=manifest["coverage"]
+            or manifest["contract_identity"]!=contract_identity(stored_config)
             or records["context.json"]["schema_sha256"]!=digest(context)
             or manifest["implementation_identity"]!=_implementation_identity()):
         raise ContractError("base manifest/context/implementation mismatch")
@@ -373,6 +375,15 @@ def verify_base_partition(root):
     pf=pq.ParquetFile(base)
     if not pf.schema_arrow.equals(BASE_SCHEMA,check_metadata=True) or pf.metadata.num_rows!=manifest["coverage"]["expected_rows"]:
         raise ContractError("base schema/row count mismatch")
-    previous=None
-    for batch in pf.iter_batches(batch_size=4096,use_threads=False): previous=validate_batch(batch,"base",previous_key=previous)
+    previous=None;first=None;last=None
+    for batch in pf.iter_batches(batch_size=4096,use_threads=False):
+        previous=validate_batch(batch,"base",previous_key=previous)
+        if batch.num_rows:
+            batch_first=(batch.column(0)[0].as_py(),batch.column(1)[0].as_py(),batch.column(2)[0].as_py())
+            batch_last=(batch.column(0)[-1].as_py(),batch.column(1)[-1].as_py(),batch.column(2)[-1].as_py())
+            if first is None:first=batch_first
+            last=batch_last
+    expected_first=(manifest["member"]["session_date"],manifest["member"]["symbol"],manifest["coverage"]["session_start_ns"]+NS)
+    expected_last=(manifest["member"]["session_date"],manifest["member"]["symbol"],manifest["coverage"]["end_ns"])
+    if first!=expected_first or last!=expected_last:raise ContractError("base coverage boundary mismatch")
     return manifest

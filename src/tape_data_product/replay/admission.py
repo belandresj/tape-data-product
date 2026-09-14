@@ -100,6 +100,9 @@ def load_member_descriptors(source_pair, member_context):
         raise ContractError("observation intervals required")
     for source in ("quotes", "trades"):
         declared=_intervals(context["observation_intervals"][source], source, session_start, cov["end_ns"])
+        if (not declared or declared[0][0]!=session_start or declared[-1][1]!=cov["end_ns"]
+                or any(left[1]!=right[0] for left,right in zip(declared,declared[1:]))):
+            raise ContractError(f"{source} observation intervals do not cover declared prefix")
         coverage=read_json(evidence_root/safe_relative(pair["streams"][source]["coverage_evidence_path"]))
         expected={"version","member","stream","intervals","terminal_complete"}
         if set(coverage)!=expected or coverage["version"]!="source_coverage_v1" or coverage["member"]!=member or coverage["stream"]!=source or coverage["terminal_complete"] is not True or tuple(map(tuple,coverage["intervals"]))!=declared:
@@ -138,15 +141,32 @@ def admit_inventory(inventory, evidence, output):
     evidence_members = evidence.get("members", {})
     admitted = blocked = 0
     findings = []
+    seen=set()
     for record in records:
-        key = f"{record.get('session_date')}/{record.get('symbol')}"
+        if type(record) is not dict:key="<malformed>"
+        else:key=_member(record.get("symbol"),record.get("session_date"))
+        if key in seen:raise ContractError("duplicate inventory member")
+        seen.add(key)
         reasons = []
         item = evidence_members.get(key, {})
         for required in ("quote_units", "trade_representation", "terminal_coverage", "halt_context", "continuity"):
             if not item.get(required): reasons.append(f"missing_{required}")
+        pair_path=item.get("source_pair_path");context_path=item.get("member_context_path")
+        if not pair_path or not context_path:
+            reasons.append("missing_member_descriptors")
+        if not reasons:
+            try:
+                pair,context,_,_=load_member_descriptors(pair_path,context_path)
+            except (ContractError,FileNotFoundError) as error:
+                reasons.append(f"descriptor_rejected:{error}")
         state = "metadata_admitted" if not reasons else "blocked"
         admitted += state == "metadata_admitted"; blocked += state == "blocked"
-        findings.append({"member": key, "state": state, "reasons": reasons})
+        finding={"member": key, "state": state, "reasons": reasons}
+        if state=="metadata_admitted":
+            member_root=output/"members"/record["session_date"]/record["symbol"]
+            write_atomic_json(member_root/"source-pair.json",pair);write_atomic_json(member_root/"context.json",context)
+            finding["source_pair_path"]=str((member_root/"source-pair.json").resolve());finding["member_context_path"]=str((member_root/"context.json").resolve())
+        findings.append(finding)
     result = {"version": "tape_admission_report_v1", "members": len(records),
               "metadata_admitted": admitted, "blocked": blocked, "findings": findings}
     write_atomic_json(output / "admission-report.json", result)

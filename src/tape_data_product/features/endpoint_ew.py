@@ -90,6 +90,12 @@ def scaled_square_divide(a, b):
     result=ScaledSum();result.add_parts((a.m*a.m)/b.m,2*a.e-b.e);return result
 
 
+def scaled_ratio_parts(a,b):
+    if a.zero:return 0.0,0
+    if b.zero:raise ContractError("zero scaled denominator")
+    m,e=math.frexp(a.m/b.m);return m,e+a.e-b.e
+
+
 def history_mask(source, halted, elapsed, startup, usable, possible, minimum):
     reason=Reason(0)
     if source==SourceStatus.UNVERIFIED:reason|=Reason.SOURCE_UNVERIFIED
@@ -165,7 +171,7 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
             records=[output_record(attempt/"features.parquet",rows=rows,schema_sha256=schema_hash(feature_schema(config))),output_record(attempt/"support.parquet",rows=rows,schema_sha256=schema_hash(support_schema(config)))]
             manifest={"manifest_version":"tape_member_manifest_v1","member":base_manifest["member"],"coverage":base_manifest["coverage"],
               "inputs":{"base_manifest_sha256":base_sha,"base_compatibility_sha256":base_manifest["base_compatibility"]["sha256"]},"source_units":base_manifest["source_units"],
-              "contract_identity":contract_identity(config),"implementation_identity":implementation,"outputs":records,
+              "contract_identity":contract_identity(config),"contract_config":config.to_dict(),"implementation_identity":implementation,"outputs":records,
               "validation":{"integrity":"passed","independent_reconstruction":"pending","diagnostic_underflow_count":underflows},"complete":True}
             write_atomic_json(attempt/"manifest.json",manifest);verify_feature_partition(attempt,base_partition,config=config);os.replace(attempt,output)
         except Exception:shutil.rmtree(attempt,ignore_errors=True);raise
@@ -208,8 +214,9 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
                     if not state["w"].zero:
                         mean=state["u1"].ratio(state["w"])
                         denominator=ScaledSum(state["w"].m,state["w"].e);denominator.add_float(1)
-                        factor=state["w"].ratio(denominator)
-                        state["c"].add_float(factor*(magnitude-mean)*(magnitude-mean))
+                        factor_m,factor_e=scaled_ratio_parts(state["w"],denominator)
+                        delta_m,delta_e=math.frexp(abs(magnitude-mean))
+                        state["c"].add_parts(factor_m*delta_m*delta_m,factor_e+2*delta_e)
                     state["u1"].add_float(abs(r));state["u2"].add_square(r);state["w"].add_float(1);state["ever_positive"]|=r!=0
                 for family in ("spread","activity_count","activity_share","activity_dollar","bid_size","ask_size"):state[family].decay(l)
                 state["spread"].admit(row["spread_integral_bps_seconds"] or 0,row["spread_valid_duration_ns"]/NS)
@@ -252,8 +259,10 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
             names["midpoint_rms_5s_to_spread"]=(rms/spread if not ratio_reason else None,ratio_reason)
             for name,(value,reason) in names.items():fr[name+suffix]=value;fr[name+suffix+"_reason_mask"]=reason
             sr["return_usable_weight"+suffix]=state["w"].value();sr["return_possible_weight"+suffix]=state["wp"].value()
+            if not state["w"].zero and sr["return_usable_weight"+suffix]==0:underflows+=1
             for family,key in (("spread","spread"),("activity","activity_count"),("bid_size","bid_size"),("ask_size","ask_size")):
                 sr[f"{family}_usable_exposure_seconds{suffix}"]=state[key].usable.value();sr[f"{family}_possible_exposure_seconds{suffix}"]=state[key].possible.value()
+                if not state[key].usable.zero and sr[f"{family}_usable_exposure_seconds{suffix}"]==0:underflows+=1
         sr["quote_ew_startup_elapsed_seconds"]=quote_elapsed;sr["trade_ew_startup_elapsed_seconds"]=trade_elapsed
         for h in config.age_windows_seconds:
             for a in AGES:
@@ -278,8 +287,9 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
 
 def verify_feature_partition(root,base_partition,*,config=DEFAULT_CONFIG):
     root=Path(root);base_partition=Path(base_partition);manifest=read_json(root/"manifest.json")
-    required={"manifest_version","member","coverage","inputs","source_units","contract_identity","implementation_identity","outputs","validation","complete"}
+    required={"manifest_version","member","coverage","inputs","source_units","contract_identity","contract_config","implementation_identity","outputs","validation","complete"}
     if set(manifest)!=required or not manifest["complete"]:raise ContractError("invalid feature manifest")
+    if FeatureConfig.from_dict(manifest["contract_config"])!=config:raise ContractError("feature stored config mismatch")
     if manifest["contract_identity"]!=contract_identity(config):raise ContractError("feature config identity mismatch")
     if manifest["implementation_identity"]!=_implementation_identity():raise ContractError("feature implementation identity mismatch")
     if manifest["inputs"]["base_manifest_sha256"]!=sha256_file(base_partition/"manifest.json")[0]:raise ContractError("feature/base identity mismatch")

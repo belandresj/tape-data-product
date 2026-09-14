@@ -16,6 +16,7 @@ from tape_data_product.features.endpoint_ew import AgeWindow,ScaledSum,build_fro
 from tape_data_product.features.endpoint_ew import verify_feature_partition
 from tape_data_product.integrity import sha256_file
 from tape_data_product.replay.builder import build_base_partition,verify_base_partition
+from tape_data_product.replay.admission import admit_inventory
 from tape_data_product.calculate import create_plan,run_plan
 
 QSCHEMA=pa.schema([pa.field("sip_timestamp",pa.int64()),pa.field("sequence_number",pa.int64()),pa.field("bid_price",pa.float64()),pa.field("ask_price",pa.float64()),pa.field("bid_size",pa.float64()),pa.field("ask_size",pa.float64()),pa.field("conditions",pa.list_(pa.int64())),pa.field("indicators",pa.list_(pa.int64()))])
@@ -152,3 +153,25 @@ def test_calculation_plan_preflight_is_hash_bound(tmp_path):
     assert not result["ready"] and result["unresolved"]==1
     with pytest.raises(ValueError,match="plan identity mismatch"):run_plan(result["plan"],"0"*64)
     with pytest.raises(ValueError,match="transfer_incomplete"):run_plan(result["plan"],result["sha256"])
+
+def test_admission_emits_validated_member_descriptors(tmp_path):
+    pair,context=fixture(tmp_path,6)
+    inventory={"members":[{"session_date":"2026-09-02","symbol":"SYN"}]}
+    evidence={"members":{"2026-09-02/SYN":{"quote_units":True,"trade_representation":True,"terminal_coverage":True,"halt_context":True,"continuity":True,"source_pair_path":str(pair),"member_context_path":str(context)}}}
+    for name,value in (("inventory.json",inventory),("evidence.json",evidence)):(tmp_path/name).write_text(json.dumps(value))
+    result=admit_inventory(tmp_path/"inventory.json",tmp_path/"evidence.json",tmp_path/"admitted")
+    assert result["metadata_admitted"]==1 and result["blocked"]==0
+    assert (tmp_path/"admitted/members/2026-09-02/SYN/source-pair.json").exists()
+
+def test_admission_rejects_interval_short_of_prefix(tmp_path):
+    pair,context=fixture(tmp_path,6);c=json.loads(context.read_text());start=c["coverage"]["session_start_ns"];c["observation_intervals"]["quotes"]=[[start,start+5*NS]];context.write_text(json.dumps(c))
+    p=json.loads(pair.read_text());coverage=tmp_path/"evidence"/"quotes-coverage.json";body=json.loads(coverage.read_text());body["intervals"]=c["observation_intervals"]["quotes"];coverage.write_text(json.dumps(body));p["streams"]["quotes"]["coverage_evidence_sha256"]=sha256_file(coverage)[0];pair.write_text(json.dumps(p))
+    with pytest.raises(ValueError,match="do not cover declared prefix"):build_base_partition(pair,context,tmp_path/"base")
+
+def test_numeric_and_contradictory_locks(tmp_path):
+    pair,context=fixture(tmp_path,2);start,_=session_bounds("2026-09-02");raw=tmp_path/"raw"
+    quotes=[{"sip_timestamp":start,"sequence_number":1,"bid_price":100.,"ask_price":100.,"bid_size":10.,"ask_size":20.,"conditions":[],"indicators":[]},{"sip_timestamp":start+NS,"sequence_number":2,"bid_price":99.,"ask_price":101.,"bid_size":10.,"ask_size":20.,"conditions":[85],"indicators":[]}]
+    _write(raw/"quotes.parquet",QSCHEMA,quotes);p=json.loads(pair.read_text());p["streams"]["quotes"].update(_records(raw/"quotes.parquet"));unit=tmp_path/"evidence"/"quote-units.json";body=json.loads(unit.read_text());body["object_sha256"]=p["streams"]["quotes"]["sha256"];unit.write_text(json.dumps(body));p["source_units"]["quote_size_evidence_sha256"]=sha256_file(unit)[0];pair.write_text(json.dumps(p))
+    base=tmp_path/"base";build_base_partition(pair,context,base);rows=pq.read_table(base/"base.parquet").to_pylist()
+    assert rows[0]["spread_integral_bps_seconds"]==0 and rows[0]["spread_valid_duration_ns"]==NS
+    assert rows[1]["bid_end_usd"]==99 and rows[1]["price_end_reason_mask"]==0 and rows[1]["spread_valid_duration_ns"]==0
