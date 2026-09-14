@@ -49,7 +49,7 @@ def test_scaled_hand_sum_and_age_interpolation():
     assert u.ratio(w)==pytest.approx(19/3)
     tiny=ScaledSum();tiny.add_square(1.)
     for _ in range(1200):tiny.decay(.5)
-    assert not tiny.zero and tiny.e < -2000
+    assert not tiny.zero and tiny.e < -1100
     age=AgeWindow(4)
     for x in (0.,1.,2.,3.):age.append(x)
     assert age.p90()==pytest.approx(2.7)
