@@ -163,7 +163,7 @@ def _current_mask(valid, *, halt, status, broken=False, missing_event=False, mid
     return value
 
 
-def _trade_class(row, config):
+def _trade_class(row, config, session_start):
     correction = row["correction"]
     if correction is None: correction = 0
     if type(correction) is not int or correction not in KNOWN_CORRECTIONS:
@@ -175,7 +175,8 @@ def _trade_class(row, config):
     if unknown: return "uncertain", None
     sip = row["sip_timestamp"]; participant = row["participant_timestamp"]
     if type(participant) is not int: raise ContractError("untrustworthy participant clock")
-    allowed = RTH_TRADE_CONDITIONS if 13*3600+30*60 <= (sip//NS)%86400 < 20*3600 else EXTENDED_TRADE_CONDITIONS
+    elapsed = (sip - session_start) // NS
+    allowed = RTH_TRADE_CONDITIONS if 5*3600+30*60 <= elapsed < 12*3600 else EXTENDED_TRADE_CONDITIONS
     if any(c not in allowed for c in codes) or not timely_trade(sip, participant, config): return "excluded", None
     price = row["price"]
     if type(price) not in (int,float) or isinstance(price,bool) or not math.isfinite(price): return "uncertain", None
@@ -251,10 +252,11 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
             qgaps=[tuple(x) for x in context["gaps"].get("quotes",[])]; tgaps=[tuple(x) for x in context["gaps"].get("trades",[])]
             qbreaks=[x for x in context["instantaneous_breaks"].get("quotes",[]) if left<=x<right] + [a for a,b in qgaps if left<=a<right]
             tbreaks=[x for x in context["instantaneous_breaks"].get("trades",[]) if left<=x<right] + [a for a,b in tgaps if left<=a<right]
+            quote_break_in_second=bool(qbreaks);trade_break_in_second=bool(tbreaks)
             if halt:
                 state=QuoteState(); last_trade=None; quote_cont+=1; trade_cont+=1; quote_broken=trade_broken=True
-            qstatus=SourceStatus.ACCEPTED if _point_in(qints,right-1) else SourceStatus.UNAVAILABLE
-            tstatus=SourceStatus.ACCEPTED if _point_in(tints,right-1) else SourceStatus.UNAVAILABLE
+            qstatus=SourceStatus.ACCEPTED if _point_in(qints,right-1) and not _point_in(qgaps,right-1) else SourceStatus.UNAVAILABLE
+            tstatus=SourceStatus.ACCEPTED if _point_in(tints,right-1) and not _point_in(tgaps,right-1) else SourceStatus.UNAVAILABLE
             # quote integration, transitions before same-time events
             cursor=left; bsum=asum=ssum=bisum=aisum=0.0; pdur=sdur=bidur=aidur=0
             while qnext is not None and qnext["sip_timestamp"] < right:
@@ -264,19 +266,24 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
                     if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,boundary,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
                     state=QuoteState(); quote_cont+=1; quote_broken=True; cursor=boundary
                 if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,t,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps); _apply_quote(state,qnext,multiplier); quote_broken=False
-                cursor=t; qnext=next(quote_events,None); qbreaks=[]
+                cursor=t; qnext=next(quote_events,None); qbreaks=[x for x in qbreaks if x>t]
             for boundary in sorted(x for x in qbreaks if cursor<=x<right):
                 if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,boundary,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
                 state=QuoteState(); quote_cont+=1; quote_broken=True; cursor=boundary
             if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,right,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
             count=0; total=0; dollars=0.0; uncertain=False
+            pending_trade_breaks=iter(sorted(tbreaks));next_trade_break=next(pending_trade_breaks,None)
             while tnext is not None and tnext["sip_timestamp"] < right:
+                while next_trade_break is not None and next_trade_break <= tnext["sip_timestamp"]:
+                    last_trade=None;trade_cont+=1;trade_broken=True;next_trade_break=next(pending_trade_breaks,None)
                 if not halt:
-                    kind,payload=_trade_class(tnext,config)
+                    kind,payload=_trade_class(tnext,config,start)
                     if kind=="uncertain": uncertain=True; last_trade=None
                     elif kind=="eligible":
-                        price,quantity=payload; count+=1; total=add_share_units(total,shares_from_units(quantity)); dollars+=price*(quantity/1e9); last_trade=tnext["sip_timestamp"]
+                        price,quantity=payload; count+=1; total=add_share_units(total,shares_from_units(quantity)); dollars+=price*(quantity/1e9); last_trade=tnext["sip_timestamp"];trade_broken=False
                 tnext=next(trade_events,None)
+            while next_trade_break is not None:
+                last_trade=None;trade_cont+=1;trade_broken=True;next_trade_break=next(pending_trade_breaks,None)
             if uncertain: count=total=dollars=None; activity=0
             else: activity=0 if halt else tobs
             midpoint_status=MidpointAgeStatus.UNOBSERVABLE
@@ -305,7 +312,7 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
                  "midpoint_observation_start_ns":state.origin_ns if midpoint_status!=MidpointAgeStatus.UNOBSERVABLE and not halt else None,
                  "midpoint_age_lower_bound_seconds":(right-state.origin_ns)/NS if midpoint_status==MidpointAgeStatus.NO_CHANGE_OBSERVED and not halt else None,
                  "quote_source_status":int(qstatus),"trade_source_status":int(tstatus),"quote_observed_duration_ns":qobs,"trade_observed_duration_ns":tobs,
-                 "quote_continuity_id":quote_cont,"trade_continuity_id":trade_cont,"quote_continuity_break_in_second":bool(qbreaks or halt),"trade_continuity_break_in_second":bool(tbreaks or halt),
+                 "quote_continuity_id":quote_cont,"trade_continuity_id":trade_cont,"quote_continuity_break_in_second":bool(quote_break_in_second or halt),"trade_continuity_break_in_second":bool(trade_break_in_second or halt),
                  "halt_active":halt,"halt_id":halts[0]["id"] if halt else None}
             buffers.append(row)
             if len(buffers)>=4096:

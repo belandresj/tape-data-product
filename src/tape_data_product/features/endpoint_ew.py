@@ -146,7 +146,7 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
         except BlockingIOError as error:raise ContractError("concurrent member writer") from error
         attempt=Path(tempfile.mkdtemp(prefix=f".{output.name}.attempt-",dir=output.parent))
         try:
-            rows,underflows=_calculate(base_partition/"base.parquet",attempt/"features.parquet",attempt/"support.parquet",config,batch_size)
+            rows,underflows=_calculate(base_partition/"base.parquet",base_partition/"context.json",attempt/"features.parquet",attempt/"support.parquet",config,batch_size)
             base_sha=sha256_file(base_partition/"manifest.json")[0];implementation=_implementation_identity()
             records=[output_record(attempt/"features.parquet",rows=rows,schema_sha256=schema_hash(feature_schema(config))),output_record(attempt/"support.parquet",rows=rows,schema_sha256=schema_hash(support_schema(config)))]
             manifest={"manifest_version":"tape_member_manifest_v1","member":base_manifest["member"],"coverage":base_manifest["coverage"],
@@ -158,7 +158,9 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
     return BuildResult(digest(manifest["member"]),manifest["contract_identity"],output/"manifest.json",rows)
 
 
-def _calculate(base_path,feature_path,support_path,config,batch_size):
+def _calculate(base_path,context_path,feature_path,support_path,config,batch_size):
+    context=read_json(context_path)
+    exact_breaks={source:set(context["instantaneous_breaks"].get(source,[]))|{x[0] for x in context["gaps"].get(source,[])} for source in ("quotes","trades")}
     views=[]
     for view in config.views:
         views.append({"view":view,"lambda":2**(-1/view.half_life_seconds),"u1":ScaledSum(),"u2":ScaledSum(),"w":ScaledSum(),"wp":ScaledSum(),
@@ -199,9 +201,14 @@ def _calculate(base_path,feature_path,support_path,config,batch_size):
                     for h in config.age_windows_seconds:windows[a,h].clear()
             if row["trade_continuity_break_in_second"]:
                 for h in config.age_windows_seconds:windows["trade",h].clear()
+            left=row["interval_end_ns"]-NS
             for a in AGES:
-                value=row[f"{a}_age_seconds"] if row[f"{a}_age_reason_mask"]==0 else None
-                for h in config.age_windows_seconds:windows[a,h].append(value)
+                source="trades" if a=="trade" else "quotes"
+                full_observed=row[("trade" if source=="trades" else "quote")+"_observed_duration_ns"]==NS
+                interior_break=any(left<x<row["interval_end_ns"] for x in exact_breaks[source])
+                if full_observed and not interior_break:
+                    value=row[f"{a}_age_seconds"] if row[f"{a}_age_reason_mask"]==0 else None
+                    for h in config.age_windows_seconds:windows[a,h].append(value)
         fr={k:row[k] for k in ("session_date","symbol","interval_end_ns")};sr=dict(fr)
         for state in views:
             view=state["view"];suffix=f"_hl{view.half_life_seconds}s"
@@ -214,8 +221,7 @@ def _calculate(base_path,feature_path,support_path,config,batch_size):
                 # U1^2/(W*U2), evaluated by mantissa/exponent composition.
                 exponent=2*state["u1"].e-state["w"].e-state["u2"].e
                 part=math.ldexp((state["u1"].m*state["u1"].m)/(state["w"].m*state["u2"].m),exponent)
-                if not 0<=part<=1+1e-14:raise ContractError("participation invariant failed")
-                part=min(1.0,part)
+                if not 0<=part<=1:raise ContractError("participation invariant failed")
             names={"midpoint_rms_5s_bps":(rms,return_reason),"movement_participation":(part,part_reason)}
             family_map={"quoted_spread_bps":("spread",config.spread_min_coverage,qstatus,quote_elapsed),"trade_rate_per_second":("activity_count",config.other_min_coverage,tstatus,trade_elapsed),"share_rate_per_second":("activity_share",config.other_min_coverage,tstatus,trade_elapsed),"dollar_rate_usd_per_second":("activity_dollar",config.other_min_coverage,tstatus,trade_elapsed),"bid_size_mean_shares":("bid_size",config.other_min_coverage,qstatus,quote_elapsed),"ask_size_mean_shares":("ask_size",config.other_min_coverage,qstatus,quote_elapsed)}
             for name,(family,minimum,status,elapsed) in family_map.items():
