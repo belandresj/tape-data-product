@@ -71,6 +71,8 @@ def register_commands(subparsers):
         "features", help="Calculate or independently verify compact 60s/300s features"
     )
     commands = features.add_subparsers(dest="feature_command", required=True)
+    from .endpoint_ew_cli import register_commands as endpoint_ew
+    endpoint_ew(commands)
     build = commands.add_parser(
         "build", help="Stream explicit canonical source pairs from session start"
     )

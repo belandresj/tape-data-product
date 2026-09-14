@@ -19,10 +19,14 @@ def parser():
     from tape_data_product.acquisition.cli import register_commands as acquisition
     from tape_data_product.features.cli import register_commands as features
     from tape_data_product.analysis.cli import register_commands as analysis
+    from tape_data_product.replay.cli import register_commands as replay
+    from tape_data_product.calculate import register_commands as calculate
 
     acquisition(commands)
     features(commands)
     analysis(commands)
+    replay(commands)
+    calculate(commands)
     return result
 
 

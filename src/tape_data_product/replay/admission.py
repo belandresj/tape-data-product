@@ -1,0 +1,126 @@
+"""Versioned source/context descriptor admission without raw consumption."""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from ..contracts.config import ContractError
+from ..contracts.policy import NS, session_bounds
+from ..contracts.source import SourceUnits
+from ..integrity import read_json, safe_relative, write_atomic_json
+
+PAIR_FIELDS = {"version", "symbol", "session_date", "currency", "adapter", "root",
+               "streams", "source_units"}
+CONTEXT_FIELDS = {"version", "member", "coverage", "observation_intervals", "gaps",
+                  "instantaneous_breaks", "halts", "halt_evidence", "seed",
+                  "selection", "discovery"}
+
+
+def _member(symbol, day):
+    if type(symbol) is not str or not re.fullmatch(r"[A-Z0-9][A-Z0-9._-]{0,31}", symbol):
+        raise ContractError("invalid symbol")
+    session_bounds(day)
+    return f"{day}/{symbol}"
+
+
+def _intervals(values, name, start, end):
+    if type(values) is not list or len(values) > 1024:
+        raise ContractError(f"invalid {name}")
+    previous = start
+    result = []
+    for item in values:
+        if type(item) is not list or len(item) != 2 or any(type(x) is not int for x in item):
+            raise ContractError(f"invalid {name} interval")
+        a, b = item
+        if not start <= a < b <= end or a < previous:
+            raise ContractError(f"overlapping/out-of-range {name}")
+        result.append((a, b)); previous = b
+    return tuple(result)
+
+
+def load_member_descriptors(source_pair, member_context):
+    pair, context = read_json(source_pair), read_json(member_context)
+    if set(pair) != PAIR_FIELDS or pair["version"] != "tape_source_pair_v1":
+        raise ContractError("unknown/missing source-pair fields or version")
+    if set(context) != CONTEXT_FIELDS or context["version"] != "tape_member_context_v1":
+        raise ContractError("unknown/missing member-context fields or version")
+    member = _member(pair["symbol"], pair["session_date"])
+    if pair["currency"] != "USD" or context["member"] != member:
+        raise ContractError("source/context member mismatch")
+    if pair["adapter"] != "massive_canonical_tq_v1":
+        raise ContractError("unsupported source adapter")
+    root = Path(pair["root"])
+    if not root.is_absolute():
+        raise ContractError("source root must be absolute")
+    if set(pair["streams"]) != {"quotes", "trades"}:
+        raise ContractError("complete T/Q pair required")
+    for name, stream in pair["streams"].items():
+        required = {"path", "sha256", "bytes", "rows", "schema_sha256", "clock",
+                    "provenance_sha256", "coverage_evidence_sha256",
+                    "terminal_complete"}
+        if set(stream) != required or stream["clock"] != "sip_timestamp_utc_ns":
+            raise ContractError(f"malformed {name} descriptor")
+        safe_relative(stream["path"])
+        if not stream["terminal_complete"]:
+            raise ContractError(f"{name} terminal coverage is unresolved")
+        for key in ("sha256", "schema_sha256", "provenance_sha256", "coverage_evidence_sha256"):
+            if type(stream[key]) is not str or not re.fullmatch(r"[0-9a-f]{64}", stream[key]):
+                raise ContractError(f"invalid {name} {key}")
+        if type(stream["bytes"]) is not int or stream["bytes"] < 0 or type(stream["rows"]) is not int or stream["rows"] < 0:
+            raise ContractError(f"invalid {name} counts")
+    try:
+        units = SourceUnits(**pair["source_units"])
+    except TypeError as error:
+        raise ContractError("malformed source units") from error
+    cov = context["coverage"]
+    if set(cov) != {"kind", "session_start_ns", "end_ns", "expected_rows"}:
+        raise ContractError("malformed coverage")
+    session_start, session_end = session_bounds(pair["session_date"])
+    if cov["kind"] not in ("full", "prefix") or cov["session_start_ns"] != session_start:
+        raise ContractError("unsupported coverage")
+    if type(cov["end_ns"]) is not int or not session_start < cov["end_ns"] <= session_end or (cov["end_ns"]-session_start) % NS:
+        raise ContractError("coverage end is off grid")
+    if cov["expected_rows"] != (cov["end_ns"]-session_start)//NS:
+        raise ContractError("coverage row count mismatch")
+    if cov["kind"] == "full" and cov["end_ns"] != session_end:
+        raise ContractError("full coverage must end at 20:00 ET")
+    if set(context["observation_intervals"]) != {"quotes", "trades"}:
+        raise ContractError("observation intervals required")
+    for source in ("quotes", "trades"):
+        _intervals(context["observation_intervals"][source], source, session_start, cov["end_ns"])
+        _intervals(context["gaps"].get(source, []), source + " gaps", session_start, cov["end_ns"])
+        points = context["instantaneous_breaks"].get(source, [])
+        if type(points) is not list or any(type(x) is not int or not session_start <= x < cov["end_ns"] for x in points):
+            raise ContractError("invalid instantaneous breaks")
+    if context["halt_evidence"].get("status") not in ("verified_empty", "accepted_intervals"):
+        raise ContractError("halt context unresolved")
+    if type(context["halts"]) is not list:
+        raise ContractError("invalid halts")
+    return pair, context, root, units
+
+
+def admit_inventory(inventory, evidence, output):
+    inventory, evidence = read_json(inventory), read_json(evidence)
+    output = Path(output)
+    if output.exists():
+        raise FileExistsError(output)
+    output.mkdir(parents=True)
+    records = inventory.get("members")
+    if type(records) is not list or len(records) > 1_000_000:
+        raise ContractError("bounded member inventory required")
+    evidence_members = evidence.get("members", {})
+    admitted = blocked = 0
+    findings = []
+    for record in records:
+        key = f"{record.get('session_date')}/{record.get('symbol')}"
+        reasons = []
+        item = evidence_members.get(key, {})
+        for required in ("quote_units", "trade_representation", "terminal_coverage", "halt_context", "continuity"):
+            if not item.get(required): reasons.append(f"missing_{required}")
+        state = "metadata_admitted" if not reasons else "blocked"
+        admitted += state == "metadata_admitted"; blocked += state == "blocked"
+        findings.append({"member": key, "state": state, "reasons": reasons})
+    result = {"version": "tape_admission_report_v1", "members": len(records),
+              "metadata_admitted": admitted, "blocked": blocked, "findings": findings}
+    write_atomic_json(output / "admission-report.json", result)
+    return result
