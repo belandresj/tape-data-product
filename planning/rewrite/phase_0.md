@@ -196,9 +196,9 @@ Baseline HEAD: `d2098f2f66f2c870a09710ce95e18589115a0df0`. The inspected tree ha
 
 Original planning baseline result (before this semantic-review revision): **69 passed**, pytest duration 16.03s; monitored command duration 19.509s; sampled peak process-tree RSS 186,515,456 bytes (177.9 MiB); exit code 0 and no guard stop. Selected suites: `test_direct_frozen_product`, `test_compact_integrity`, `test_product_stages`, `test_tape_cohort_query`, and `test_standalone`. This is a targeted baseline, not the full suite or historical regeneration.
 
-The original tree snapshot is historical and is not overwritten by this review; it does not hash the revised spec. The separate `phase_0_semantics_review_20260914.json` and `.log` record targeted rechecks of the prior behavior discussed above.
+The original tree snapshot and targeted semantics-review JSON/logs were historical verification outputs; they were removed during the 2026-09-14 cleanup. The tracked completion record retains the accepted verification summary.
 
-Private evidence files outside the tracked planning directory record the bounded baseline run and a content-hash snapshot of source/tests/configuration and local instructions/plans. This is an audit fingerprint, not a reviewed Git commit or a restorable backup. For subsequent implementation, preserve a reviewed code commit containing the tracked planning documents and retain raw evidence privately. Do not force-add raw `local_docs/` evidence to Git.
+The bounded baseline run and content-hash snapshot were originally recorded privately. Those temporary files were removed during the 2026-09-14 cleanup. For subsequent implementation, preserve a reviewed code commit containing the tracked planning documents and a concise completion record. Keep any necessary private source receipts outside Git.
 
 ## 9. Acceptance checklist
 

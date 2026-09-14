@@ -4,7 +4,24 @@ The product has been installed and checked on Ubuntu 26.04 x86_64 with isolated 
 
 ## Environment layout
 
+Use the project-specific local SSH alias `tape-data-product-vps` (endpoint and login are in the operator's `~/.ssh/config`, outside Git). It was verified against the Phase 1 project host on 2026-09-14. Do not select another available SSH alias merely because it exists: `capstone-db-hil` is not this project's Phase 1 endpoint. Before diagnosing a VM outage, reconcile the resolved SSH destination with the last successful project deployment and verify the project runtime/data paths. The migration task's three reported timeouts on that date targeted the unrelated alias; a subsequent read-only connection to the project host succeeded.
+
 Keep repository/releases and the virtual environment under `/opt/tape-data-product`; persistent raw/base/feature datasets, control records, reports and bounded scratch under `/srv/tape-data-product`. Keep secrets under `/etc/tape-data-product`, outside both Git and package artifacts. Administrative login and a non-login `tape` runtime account are separate. A shared group permits controlled access without making datasets or credentials world-readable.
+
+### Required connection preflight for every VM job
+
+1. Resolve `ssh -G tape-data-product-vps` and inspect hostname, user, port and identity selection locally. Keep endpoint/key details out of tracked logs. An absent alias may resolve as a literal DNS name; that is not a verified destination. If configuration is missing, recover the last successful project connection from private operational records or the Phase 1 task history. Do not substitute another alias from `~/.ssh/config`.
+2. Use noninteractive public-key authentication and `StrictHostKeyChecking=yes`; do not bypass a host-key mismatch. On first connection for the job, verify hostname, login identity, the Git origin of `/opt/tape-data-product/repository`, and the project runtime/data paths using read-only commands. Compare against the recorded project deployment before allowing writes. An unexpected identity or missing project paths requires reconciliation, not automatic provisioning on that host.
+3. If connection fails, state the actual failure stage: local name/configuration resolution, TCP connection, SSH handshake/host key, authentication, or remote command. A TCP timeout does not establish that the VM is stopped. Recheck the intended destination against prior successful evidence before retrying or recommending provider/firewall changes.
+4. Every handoff must name the project alias and this document and preserve the private connection locator. Sanitizing or deleting operational logs must not remove the only usable connection mapping. A successful SSH login alone is insufficient evidence that this is the correct project server.
+
+Example read-only identity check after resolving the alias:
+
+```sh
+ssh tape-data-product-vps 'hostname; id -un; git -C /opt/tape-data-product/repository remote get-url origin; readlink -f /opt/tape-data-product/current; test -d /srv/tape-data-product && echo project-data-root-present'
+```
+
+The Git origin must identify this `tape-data-product` repository, allowing equivalent SSH/HTTPS URL forms. Reconcile an intentional host migration or path change with its deployment record; never silently assume the old layout applies to a different machine.
 
 Use Python 3.13, as required by pyproject.toml, independently of the OS-default interpreter. Install a built wheel, record its SHA-256 and source revision, and capture the resolved Linux dependency closure. The checked direct pins in requirements-verified.txt describe a prior environment; they are not a full transitive lock. A deployment must carry its own verified lock and wheel.
 

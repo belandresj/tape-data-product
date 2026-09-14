@@ -38,7 +38,7 @@ Five focused fake-client tests independently exercised recovery/reuse, corruptio
 - Local sample caps are not quotas against unrelated writers. Phase 2/3 must measure their own production output, memory and spill footprint before a full run.
 - Preserve private logs, catalogs, source receipts and credentials outside Git. Track these concise findings and the reproducible interfaces, not detailed market rows or administrative transcripts.
 
-The measured transport script SHA-256 is `12bfae7aada03156f524d7f64e17ad05c6568ad83183c70ba86f391064c655f8`; measured wheel identity is recorded in the specification. Private per-run JSON/logs and input identities remain with the operator. The repository checkpoint finalizes tracked planning, implemented documentation and packaging while preserving legacy report attribution.
+The measured transport script SHA-256 is `12bfae7aada03156f524d7f64e17ad05c6568ad83183c70ba86f391064c655f8`; measured wheel identity is recorded in the specification. Local per-run logs and build artifacts were removed during the 2026-09-14 cleanup. The local sample object-identity receipt and transfer ledger were also deleted at the user’s request. The VPS connection timed out during cleanup, so remote copies were not reverified. The measurements and identities in this tracked record are the retained local summary; future source admission must verify its own inputs. The repository checkpoint finalizes tracked planning, implemented documentation and packaging while preserving legacy report attribution.
 
 ## Repository checkpoint verification
 

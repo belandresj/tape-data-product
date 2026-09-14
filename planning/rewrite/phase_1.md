@@ -66,4 +66,4 @@ Acceptance requires all of the following, with evidence distinguished by type:
 - Measured time, memory, temporary/final disk and response-body accounting within the agreed caps.
 - Preserved code, harness and dependency identities; clean repository checkout available on the VPS.
 
-These criteria were met within the limitations in the completion record. The next implementation phase is the raw-to-base replay specification; complete the repository synchronization checkpoint before starting it. Full external runs still require new representative measurements and explicit scope.
+These criteria were met within the limitations in the completion record. The next operational job is the separately specified [raw migration checkpoint](raw_migration.md), followed by [Phase 2 checkpoint A](phase_2.md). Preserve this phase's historical four-object acceptance boundary. Record/synchronize the actual code and planning revision needed by the next job without overwriting unrelated edits; deployment does not imply publication. Full external runs still require new representative measurements and explicit scope.

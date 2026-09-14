@@ -58,6 +58,10 @@ Historically named modules are still transitive dependencies of current calculat
 
 ### VPS and data placement
 
+Every VM job must first read the connection preflight in [VPS operations](../../docs/vps-operations.md). Use the project-specific `tape-data-product-vps` alias; never infer the project destination from the first or only entry in SSH configuration. Missing connection configuration is a handoff/configuration problem, not evidence that the VM is stopped. Verify remote project identity read-only before edits, transfers or execution.
+
+The [storage and migration plan](storage_and_migration.md) specifies corpus-scan priority, sequential feature rebuilds, physical-layout candidates and benchmark workloads. The next operational job follows the [raw migration checkpoint specification](raw_migration.md): refresh VM/inventory evidence, reserve capacity, prepare/test the concrete runner, obtain explicit bulk-transfer confirmation, then transfer and reconcile. This is not a new numbered phase and does not reopen Phase 1. It separates transfer from the full calculation build; it does not authorize either operation by itself.
+
 The user selected OVHcloud with **8 vCPUs, 24 GB RAM, 200 GB SSD, Ubuntu 26.04**. Phase 1 verified provisioning, key-based access and isolated Python 3.13 installation. See [Phase 1 completion](phase_1_completion.md) for the executed environment and sample limits; full corpus capacity remains unproven.
 
 Keep code separate from persistent raw/base/feature datasets, control records, report outputs, and bounded temporary storage. Prefer retaining the complete canonical raw T/Q copy locally if the measured total disk budget permits. Leave unnecessary historical derived releases in R2. Raw retention is a capacity decision, not a requirement that every bucket object be mirrored.
@@ -99,6 +103,10 @@ Use an explicit small representative transfer set to validate direct download, r
 
 ### Phase 2 — Build reusable replay and the one-second base
 
+For the user-requested combined Phase 2/3 implementation task, use [the single detailed implementation handoff](feature_pipeline_implementation.md). It includes algorithms, field mapping, independent fixture expectations, installed bounded-sample checks and manual full-job preparation. This scoped sequencing adjustment writes both stages' design now while retaining base acceptance before feature acceptance. It does not claim either calculator exists or authorize an automatic corpus launch.
+
+Begin with [Phase 2 checkpoint A](phase_2.md): inspect integrated code, complete and independently review the implementation specification, and construct independently calculated fixtures/oracles. This entry checkpoint is specified; the production calculator is not implemented. The raw migration job hands off current VM/source evidence. Synthetic work can proceed if migration is blocked, but real measurements require verified/admitted inputs and bounded scope.
+
 Extract shared timing, event eligibility, quote-state, freshness, and interruption behavior. Implement one quote pass and one trade pass producing the selected base measurements. Add endpoint bid/ask and sizes, separate price TWAPs, exact share totals, and displayed-size integrals/durations with their independent validity. No trade–quote join is required by this feature set.
 
 Persist versioned base partitions and completion records through the installed interface. Demonstrate adding a small accumulator without replacing the replay machinery. Check event ordering, exact timestamps, unequal exposure, zero activity, invalid/recovered states, and halt/reset boundaries using small independently calculated fixtures.
@@ -106,6 +114,8 @@ Persist versioned base partitions and completion records through the installed i
 **Accept when:** base values and validity reconstruct independently, required semantic events survive aggregation, and batching/resumption preserves output. Measure the exact production path on a bounded representative external prefix before projecting corpus output size or resources.
 
 ### Phase 3 — Calculate the new feature views
+
+The detailed Phase 3 design is included in [the combined implementation specification](feature_pipeline_implementation.md); run it only after the same task has met its Phase 2 base correctness checkpoint. Sample admission and full-job resource readiness remain separate from synthetic implementation correctness.
 
 Implement endpoint five-second returns, EW squared/absolute moments, exposure-weighted spread/rates/sizes, participation, RMS/spread, and ordinary freshness p90s from the base dataset. Apply the Phase 0 coverage/startup/reset rules. Persist estimator/configuration identities and sufficient checkpoint state or reconstruct the required prefix across partition/query boundaries.
 
@@ -125,7 +135,7 @@ Adapt marginal/joint-distribution calculations and plotting to the new fields. S
 
 Combine measured transfer/base/feature/report costs into the full selected-corpus projection. Account for system use, raw retention, base/features, catalogs, reports, temporary spill, rebuild overlap, and growth. Refresh membership and source identities. Present representative row counts, elapsed time, peak process-tree RSS, transfer/disk projections, and obtain the required full external-run confirmation.
 
-Then transfer the selected corpus resumably and build versioned per-member outputs on the VPS. Completion must reconcile expected members, failures, exclusions, and valid zero-match members. Verify new historical features and keep legacy reconciliation separate. Measure actual throughput, peak memory/disk use, and cold/warm queries against persistent local tables.
+Then reuse and reverify any earlier staged raw corpus, transfer any remaining explicitly scoped inputs resumably, and build versioned per-member outputs on the VPS. Completion must reconcile expected members, failures, exclusions, and valid zero-match members. Verify new historical features and keep legacy reconciliation separate. Measure actual throughput, peak memory/disk use, and cold/warm queries against persistent local tables.
 
 Regenerate the numerical distributions and figures, inspect their rendering and accounting, select clearly attributed tape examples, and rewrite the root README as the final report/showcase. Link claims and figures to the accepted release/configuration and reproducible calculations. Report actual descriptive findings, including weak or concentrated relationships, rather than assuming the new features improve upon the old ones.
 
@@ -139,7 +149,7 @@ For a fixed number of views, target O(E + N·F) replay/feature work plus the dec
 
 On the 8 GiB development machine, target at most approximately 2 GiB process-tree RSS and terminate before 3 GiB. On the VPS, establish explicit measured per-worker and aggregate limits, leaving OS/query/disk-cache headroom; 24 GB RAM is not permission for unbounded processing or eight simultaneous workers. Start data execution single-process and increase concurrency only through an explicit resource-validated plan.
 
-Before full external work, measure the exact production path on a representative bounded session-start sample and inspect allocations for full-input scaling. Present measurements and projections before requesting the user's full-run confirmation. After a resource stop, inspect surviving work and fix the scaling failure before proposing a rerun. Full-run authorization does not imply deletion or public release of private market data.
+Before full external calculation work, measure the exact production path on a representative bounded session-start sample and inspect allocations for full-input scaling. Present measurements and projections before requesting the user's full-run confirmation. Early raw-only staging follows the separate measured-transfer, inventory, reserve and confirmation checkpoint in the storage and migration plan. After a resource stop, inspect surviving work and fix the scaling failure before proposing a rerun. Full-run authorization does not imply deletion or public release of private market data.
 
 ## 7. Codex execution and per-phase specification
 
