@@ -51,9 +51,10 @@ def _verify_source(pair, root):
     for name, record in pair["streams"].items():
         path = root / record["path"]
         sha, size = sha256_file(path)
+        if (sha, size) != (record["sha256"], record["bytes"]):
+            raise ContractError(f"{name} source identity changed")
         meta = pq.ParquetFile(path).metadata
-        if (sha, size, meta.num_rows, _schema_identity(path)) != (
-                record["sha256"], record["bytes"], record["rows"], record["schema_sha256"]):
+        if (meta.num_rows, _schema_identity(path)) != (record["rows"], record["schema_sha256"]):
             raise ContractError(f"{name} source identity changed")
 
 
@@ -292,7 +293,7 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
             while tnext is not None and tnext["sip_timestamp"] < right:
                 while next_trade_break is not None and next_trade_break <= tnext["sip_timestamp"]:
                     last_trade=None;trade_cont+=1;trade_broken=True;next_trade_break=next(pending_trade_breaks,None)
-                if not halt:
+                if not halt and not _point_in(tgaps,tnext["sip_timestamp"]):
                     kind,payload=_trade_class(tnext,config,start)
                     if kind=="uncertain": uncertain=True; last_trade=None
                     elif kind=="eligible":

@@ -13,7 +13,7 @@ PAIR_FIELDS = {"version", "symbol", "session_date", "currency", "adapter", "root
                "evidence_root", "streams", "source_units"}
 CONTEXT_FIELDS = {"version", "member", "coverage", "observation_intervals", "gaps",
                   "instantaneous_breaks", "halts", "halt_evidence", "seed",
-                  "selection", "discovery"}
+                  "continuity_evidence", "selection", "discovery"}
 
 
 def _member(symbol, day):
@@ -116,6 +116,13 @@ def load_member_descriptors(source_pair, member_context):
     if sha256_file(halt_path)[0]!=context["halt_evidence"]["sha256"]:raise ContractError("halt evidence identity mismatch")
     halt_body=read_json(halt_path)
     if halt_body.get("member")!=member or halt_body.get("status")!=context["halt_evidence"]["status"] or halt_body.get("halts")!=context["halts"]:raise ContractError("halt evidence does not support context")
+    continuity=context["continuity_evidence"]
+    if set(continuity)!={"path","sha256"}:raise ContractError("continuity evidence unresolved")
+    continuity_path=evidence_root/safe_relative(continuity["path"])
+    if sha256_file(continuity_path)[0]!=continuity["sha256"]:raise ContractError("continuity evidence identity mismatch")
+    continuity_body=read_json(continuity_path)
+    if continuity_body!={"version":"source_continuity_v1","member":member,"gaps":context["gaps"],"instantaneous_breaks":context["instantaneous_breaks"]}:
+        raise ContractError("continuity evidence does not support context")
     return pair, context, root, units
 
 

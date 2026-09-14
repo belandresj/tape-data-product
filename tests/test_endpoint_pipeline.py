@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib,json
 from dataclasses import replace
+import math
 from pathlib import Path
 
 import pyarrow as pa
@@ -8,11 +9,14 @@ import pyarrow.parquet as pq
 import pytest
 
 from tape_data_product.contracts import DEFAULT_CONFIG
+from tape_data_product.contracts.config import EWView,FeatureConfig
 from tape_data_product.contracts.config import digest
 from tape_data_product.contracts.policy import NS,session_bounds
 from tape_data_product.features.endpoint_ew import AgeWindow,ScaledSum,build_from_base
+from tape_data_product.features.endpoint_ew import verify_feature_partition
 from tape_data_product.integrity import sha256_file
 from tape_data_product.replay.builder import build_base_partition,verify_base_partition
+from tape_data_product.calculate import create_plan,run_plan
 
 QSCHEMA=pa.schema([pa.field("sip_timestamp",pa.int64()),pa.field("sequence_number",pa.int64()),pa.field("bid_price",pa.float64()),pa.field("ask_price",pa.float64()),pa.field("bid_size",pa.float64()),pa.field("ask_size",pa.float64()),pa.field("conditions",pa.list_(pa.int64())),pa.field("indicators",pa.list_(pa.int64()))])
 TSCHEMA=pa.schema([pa.field("sip_timestamp",pa.int64()),pa.field("sequence_number",pa.int64()),pa.field("participant_timestamp",pa.int64()),pa.field("price",pa.float64()),pa.field("decimal_size",pa.string()),pa.field("size",pa.float64()),pa.field("conditions",pa.list_(pa.int64())),pa.field("correction",pa.int64())])
@@ -37,7 +41,8 @@ def fixture(tmp_path,seconds=310):
     trade_units=evidence/"trade-units.json";trade_units.write_text(json.dumps({"version":"source_units_v1","member":f"{day}/SYN","stream":"trades","quantity_precedence":"decimal_size_then_size","scale":9,"object_sha256":streams["trades"]["sha256"]}))
     pair={"version":"tape_source_pair_v1","symbol":"SYN","session_date":day,"currency":"USD","adapter":"massive_canonical_tq_v1","root":str(raw),"evidence_root":str(evidence),"streams":streams,"source_units":{"quote_size_unit":"shares","quote_size_evidence_sha256":sha256_file(quote_units)[0],"quote_size_evidence_path":quote_units.name,"trade_quantity_evidence_sha256":sha256_file(trade_units)[0],"trade_quantity_evidence_path":trade_units.name,"round_lot_shares":None}}
     halt=evidence/"halts.json";halt.write_text(json.dumps({"member":f"{day}/SYN","status":"verified_empty","halts":[]}))
-    context={"version":"tape_member_context_v1","member":f"{day}/SYN","coverage":{"kind":"prefix","session_start_ns":start,"end_ns":start+seconds*NS,"expected_rows":seconds},"observation_intervals":{"quotes":interval,"trades":interval},"gaps":{"quotes":[],"trades":[]},"instantaneous_breaks":{"quotes":[],"trades":[]},"halts":[],"halt_evidence":{"status":"verified_empty","path":halt.name,"sha256":sha256_file(halt)[0]},"seed":{"basis":"verified_empty"},"selection":{"basis":"synthetic"},"discovery":{"eligibility_basis":"nominal"}}
+    continuity=evidence/"continuity.json";continuity.write_text(json.dumps({"version":"source_continuity_v1","member":f"{day}/SYN","gaps":{"quotes":[],"trades":[]},"instantaneous_breaks":{"quotes":[],"trades":[]}}))
+    context={"version":"tape_member_context_v1","member":f"{day}/SYN","coverage":{"kind":"prefix","session_start_ns":start,"end_ns":start+seconds*NS,"expected_rows":seconds},"observation_intervals":{"quotes":interval,"trades":interval},"gaps":{"quotes":[],"trades":[]},"instantaneous_breaks":{"quotes":[],"trades":[]},"halts":[],"halt_evidence":{"status":"verified_empty","path":halt.name,"sha256":sha256_file(halt)[0]},"continuity_evidence":{"path":continuity.name,"sha256":sha256_file(continuity)[0]},"seed":{"basis":"verified_empty"},"selection":{"basis":"synthetic"},"discovery":{"eligibility_basis":"nominal"}}
     for name,value in (("pair.json",pair),("context.json",context)):(tmp_path/name).write_text(json.dumps(value))
     return tmp_path/"pair.json",tmp_path/"context.json"
 
@@ -85,7 +90,7 @@ def test_gap_onset_event_cannot_seed_recovery(tmp_path):
     raw=tmp_path/"raw";quotes=[{"sip_timestamp":start,"sequence_number":1,"bid_price":99.,"ask_price":101.,"bid_size":10.,"ask_size":20.,"conditions":[],"indicators":[]},{"sip_timestamp":start+NS//4,"sequence_number":2,"bid_price":100.,"ask_price":102.,"bid_size":30.,"ask_size":40.,"conditions":[],"indicators":[]}]
     _write(raw/"quotes.parquet",QSCHEMA,quotes)
     p=json.loads(pair.read_text());p["streams"]["quotes"].update(_records(raw/"quotes.parquet"));unit=tmp_path/"evidence"/"quote-units.json";body=json.loads(unit.read_text());body["object_sha256"]=p["streams"]["quotes"]["sha256"];unit.write_text(json.dumps(body));p["source_units"]["quote_size_evidence_sha256"]=sha256_file(unit)[0];pair.write_text(json.dumps(p))
-    c=json.loads(context.read_text());c["gaps"]["quotes"]=[[start+NS//4,start+3*NS//4]];context.write_text(json.dumps(c))
+    c=json.loads(context.read_text());c["gaps"]["quotes"]=[[start+NS//4,start+3*NS//4]];continuity=tmp_path/"evidence"/"continuity.json";continuity.write_text(json.dumps({"version":"source_continuity_v1","member":"2026-09-02/SYN","gaps":c["gaps"],"instantaneous_breaks":c["instantaneous_breaks"]}));c["continuity_evidence"]["sha256"]=sha256_file(continuity)[0];context.write_text(json.dumps(c))
     base=tmp_path/"base";build_base_partition(pair,context,base);row=pq.read_table(base/"base.parquet").to_pylist()[0]
     assert row["quote_observed_duration_ns"]==NS//2
     assert row["price_valid_duration_ns"]==NS//4
@@ -99,3 +104,51 @@ def test_subsecond_halt_nulls_zero_support_activity(tmp_path):
     assert row["halt_active"] and row["activity_valid_duration_ns"]==0
     assert row["trade_count_1s"] is None and row["share_volume_1s"] is None and row["dollar_volume_1s_usd"] is None
     assert rows[1]["halt_active"] and rows[0]["quote_continuity_id"]==rows[1]["quote_continuity_id"]==1
+
+def test_alternate_features_require_no_raw_access(tmp_path):
+    pair,context=fixture(tmp_path,100);base=tmp_path/"base";build_base_partition(pair,context,base)
+    for path in (tmp_path/"raw").iterdir():path.chmod(0)
+    config=FeatureConfig(views=(EWView(45,90),),age_windows_seconds=(30,),spread_min_coverage=.9,other_min_coverage=.8,age_min_coverage=.9,max_trade_reporting_age_ns=1_000_000_000)
+    output=tmp_path/"alternate";build_from_base(base,output,config=config);verify_feature_partition(output,base,config=config)
+    row=pq.read_table(output/"features.parquet").to_pylist()[89]
+    assert "quoted_spread_bps_hl45s" in row and "trade_age_p90_seconds_window30s" in row
+
+def test_explicit_history_feature_oracle(tmp_path):
+    pair,context=fixture(tmp_path,70);start,_=session_bounds("2026-09-02");raw=tmp_path/"raw"
+    quotes=[{"sip_timestamp":start+i*NS,"sequence_number":i+1,"bid_price":99.+i/100,"ask_price":101.+i/100,"bid_size":10.,"ask_size":20.,"conditions":[],"indicators":[]} for i in range(70)]
+    _write(raw/"quotes.parquet",QSCHEMA,quotes);p=json.loads(pair.read_text());p["streams"]["quotes"].update(_records(raw/"quotes.parquet"));unit=tmp_path/"evidence"/"quote-units.json";body=json.loads(unit.read_text());body["object_sha256"]=p["streams"]["quotes"]["sha256"];unit.write_text(json.dumps(body));p["source_units"]["quote_size_evidence_sha256"]=sha256_file(unit)[0];pair.write_text(json.dumps(p))
+    base=tmp_path/"base";features=tmp_path/"features";build_base_partition(pair,context,base);build_from_base(base,features)
+    base_rows=pq.read_table(base/"base.parquet").to_pylist();feature_rows=pq.read_table(features/"features.parquet").to_pylist();i=59;lam=2**(-1/30)
+    returns=[]
+    for j in range(5,i+1):
+        m0=base_rows[j-5]["bid_end_usd"]/2+base_rows[j-5]["ask_end_usd"]/2;m1=base_rows[j]["bid_end_usd"]/2+base_rows[j]["ask_end_usd"]/2
+        returns.append(10000*math.log(m1/m0))
+    weights=[lam**(len(returns)-1-k) for k in range(len(returns))];w=sum(weights);q=sum(x*x*y for x,y in zip(returns,weights))/w;a=sum(abs(x)*y for x,y in zip(returns,weights))/w
+    assert feature_rows[i]["midpoint_rms_5s_bps_hl30s"]==pytest.approx(math.sqrt(q),rel=1e-10,abs=1e-12)
+    assert feature_rows[i]["movement_participation_hl30s"]==pytest.approx(a*a/q,rel=1e-10,abs=1e-12)
+
+def test_source_and_companion_faults_fail_closed(tmp_path):
+    pair,context=fixture(tmp_path,10);base=tmp_path/"base";features=tmp_path/"features";build_base_partition(pair,context,base);build_from_base(base,features)
+    with (tmp_path/"raw"/"quotes.parquet").open("ab") as handle:handle.write(b"changed")
+    with pytest.raises(ValueError,match="identity changed"):build_base_partition(pair,context,base)
+    with (features/"support.parquet").open("ab") as handle:handle.write(b"changed")
+    with pytest.raises(ValueError,match="identity mismatch"):verify_feature_partition(features,base)
+
+def test_reporting_cutoff_and_unknown_correction(tmp_path):
+    pair,context=fixture(tmp_path,2);start,_=session_bounds("2026-09-02");raw=tmp_path/"raw"
+    trades=[]
+    for i,age in enumerate((0,NS,-1,NS+1)):
+        sip=start+100+i;trades.append({"sip_timestamp":sip,"sequence_number":i+1,"participant_timestamp":sip-age,"price":100.,"decimal_size":"1","size":1.,"conditions":[],"correction":0})
+    _write(raw/"trades.parquet",TSCHEMA,trades);p=json.loads(pair.read_text());p["streams"]["trades"].update(_records(raw/"trades.parquet"));unit=tmp_path/"evidence"/"trade-units.json";body=json.loads(unit.read_text());body["object_sha256"]=p["streams"]["trades"]["sha256"];unit.write_text(json.dumps(body));p["source_units"]["trade_quantity_evidence_sha256"]=sha256_file(unit)[0];pair.write_text(json.dumps(p))
+    base=tmp_path/"base";build_base_partition(pair,context,base);assert pq.read_table(base/"base.parquet").to_pylist()[0]["trade_count_1s"]==2
+    bad=trades[:1];bad[0]["correction"]=999;_write(raw/"trades.parquet",TSCHEMA,bad);p=json.loads(pair.read_text());p["streams"]["trades"].update(_records(raw/"trades.parquet"));body["object_sha256"]=p["streams"]["trades"]["sha256"];unit.write_text(json.dumps(body));p["source_units"]["trade_quantity_evidence_sha256"]=sha256_file(unit)[0];pair.write_text(json.dumps(p))
+    with pytest.raises(ValueError,match="unknown correction"):build_base_partition(pair,context,tmp_path/"bad-base")
+
+def test_calculation_plan_preflight_is_hash_bound(tmp_path):
+    inventory={"members":[{"session_date":"2026-09-02","symbol":"SYN"}],"transfer_complete":False,"measurement_references":[],"base_root":str(tmp_path/"base"),"feature_root":str(tmp_path/"features"),"ledger_path":str(tmp_path/"ledger.sqlite")}
+    admissions={"findings":[{"member":"2026-09-02/SYN","state":"blocked"}]};limits={"workers":1}
+    for name,value in (("inventory.json",inventory),("admissions.json",admissions),("config.json",DEFAULT_CONFIG.to_dict()),("limits.json",limits)):(tmp_path/name).write_text(json.dumps(value))
+    result=create_plan(tmp_path/"inventory.json",tmp_path/"admissions.json",tmp_path/"config.json",tmp_path/"limits.json",tmp_path/"plan")
+    assert not result["ready"] and result["unresolved"]==1
+    with pytest.raises(ValueError,match="plan identity mismatch"):run_plan(result["plan"],"0"*64)
+    with pytest.raises(ValueError,match="transfer_incomplete"):run_plan(result["plan"],result["sha256"])
