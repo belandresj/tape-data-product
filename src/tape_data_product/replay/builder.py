@@ -204,6 +204,19 @@ def build_base_partition(source_pair, member_context, output, *, config=DEFAULT_
     output = Path(output)
     if (output / "manifest.json").exists():
         manifest = verify_base_partition(output)
+        implementation = _implementation_identity()
+        expected_inputs = {"source_pair_sha256":sha256_file(source_pair)[0],
+                           "context_sha256":sha256_file(member_context)[0],
+                           "streams":pair["streams"]}
+        expected_compatibility = _base_compatibility(pair, config, implementation)
+        if (manifest["member"] != {"symbol":pair["symbol"], "session_date":pair["session_date"]}
+                or manifest["coverage"] != context["coverage"]
+                or manifest["inputs"] != expected_inputs
+                or manifest["source_units"] != pair["source_units"]
+                or manifest["base_compatibility"] != expected_compatibility
+                or manifest["implementation_identity"] != implementation):
+            raise ContractError("completed base does not match requested inputs/implementation")
+        _verify_source(pair, root)
         return BuildResult(digest(manifest["member"]), manifest["contract_identity"], output/"manifest.json", manifest["coverage"]["expected_rows"])
     if output.exists() and any(output.iterdir()): raise FileExistsError(output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +251,7 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
     quote_events = iter(_event_rows(root/pair["streams"]["quotes"]["path"], QUOTE_COLUMNS, batch_size, end, seed_start=start-300*NS))
     trade_events = iter(_event_rows(root/pair["streams"]["trades"]["path"], TRADE_COLUMNS, batch_size, end, seed_start=start))
     qnext, tnext = next(quote_events, None), next(trade_events, None)
-    state = QuoteState(); last_trade=None; quote_cont=trade_cont=0; quote_broken=trade_broken=False
+    state = QuoteState(); last_trade=None; quote_cont=trade_cont=0; quote_broken=trade_broken=False; was_halt=False
     # Verified seed is explicitly opted into; otherwise consume but do not apply pre-session quotes.
     while qnext is not None and qnext["sip_timestamp"] < start:
         if context["seed"].get("basis") == "verified_interval": _apply_quote(state,qnext,multiplier)
@@ -248,12 +261,12 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
         for left in range(start,end,NS):
             right=left+NS; halts=[h for h in context["halts"] if h["start_ns"] < right and h["end_ns"] > left]
             halt=bool(halts); qints=[tuple(x) for x in context["observation_intervals"]["quotes"]]; tints=[tuple(x) for x in context["observation_intervals"]["trades"]]
-            qobs=_contains(qints,left,right); tobs=_contains(tints,left,right)
             qgaps=[tuple(x) for x in context["gaps"].get("quotes",[])]; tgaps=[tuple(x) for x in context["gaps"].get("trades",[])]
+            qobs=max(0,_contains(qints,left,right)-_contains(qgaps,left,right)); tobs=max(0,_contains(tints,left,right)-_contains(tgaps,left,right))
             qbreaks=[x for x in context["instantaneous_breaks"].get("quotes",[]) if left<=x<right] + [a for a,b in qgaps if left<=a<right]
             tbreaks=[x for x in context["instantaneous_breaks"].get("trades",[]) if left<=x<right] + [a for a,b in tgaps if left<=a<right]
             quote_break_in_second=bool(qbreaks);trade_break_in_second=bool(tbreaks)
-            if halt:
+            if halt and not was_halt:
                 state=QuoteState(); last_trade=None; quote_cont+=1; trade_cont+=1; quote_broken=trade_broken=True
             qstatus=SourceStatus.ACCEPTED if _point_in(qints,right-1) and not _point_in(qgaps,right-1) else SourceStatus.UNAVAILABLE
             tstatus=SourceStatus.ACCEPTED if _point_in(tints,right-1) and not _point_in(tgaps,right-1) else SourceStatus.UNAVAILABLE
@@ -265,7 +278,10 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
                 for boundary in boundaries:
                     if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,boundary,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
                     state=QuoteState(); quote_cont+=1; quote_broken=True; cursor=boundary
-                if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,t,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps); _apply_quote(state,qnext,multiplier); quote_broken=False
+                if not halt:
+                    bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,t,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
+                    if not _point_in(qgaps,t):
+                        _apply_quote(state,qnext,multiplier); quote_broken=False
                 cursor=t; qnext=next(quote_events,None); qbreaks=[x for x in qbreaks if x>t]
             for boundary in sorted(x for x in qbreaks if cursor<=x<right):
                 if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,boundary,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
@@ -286,6 +302,8 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
                 last_trade=None;trade_cont+=1;trade_broken=True;next_trade_break=next(pending_trade_breaks,None)
             if uncertain: count=total=dollars=None; activity=0
             else: activity=0 if halt else tobs
+            if activity == 0:
+                count=total=dollars=None
             midpoint_status=MidpointAgeStatus.UNOBSERVABLE
             if state.price_valid:
                 midpoint_status=MidpointAgeStatus.KNOWN if state.last_change_ns is not None else MidpointAgeStatus.NO_CHANGE_OBSERVED
@@ -315,6 +333,7 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
                  "quote_continuity_id":quote_cont,"trade_continuity_id":trade_cont,"quote_continuity_break_in_second":bool(quote_break_in_second or halt),"trade_continuity_break_in_second":bool(trade_break_in_second or halt),
                  "halt_active":halt,"halt_id":halts[0]["id"] if halt else None}
             buffers.append(row)
+            was_halt=halt
             if len(buffers)>=4096:
                 batch=pa.RecordBatch.from_pylist(buffers,schema=BASE_SCHEMA); validate_batch(batch,"base"); writer.write_batch(batch); buffers=[]
         if buffers:
@@ -342,7 +361,14 @@ def verify_base_partition(root):
         raise ContractError("invalid base manifest")
     records={r["path"]:r for r in manifest["outputs"]}
     if set(records)!={"base.parquet","context.json"}: raise ContractError("base companions missing")
-    base=verify_output(root,records["base.parquet"]); verify_output(root,records["context.json"])
+    context_path=verify_output(root,records["context.json"]);context=read_json(context_path)
+    if (context["member"]!=f'{manifest["member"]["session_date"]}/{manifest["member"]["symbol"]}'
+            or context["coverage"]!=manifest["coverage"]
+            or records["context.json"]["schema_sha256"]!=digest(context)
+            or manifest["implementation_identity"]!=_implementation_identity()):
+        raise ContractError("base manifest/context/implementation mismatch")
+    base=verify_output(root,records["base.parquet"])
+    if records["base.parquet"]["schema_sha256"]!=schema_hash(BASE_SCHEMA):raise ContractError("base schema identity mismatch")
     pf=pq.ParquetFile(base)
     if not pf.schema_arrow.equals(BASE_SCHEMA,check_metadata=True) or pf.metadata.num_rows!=manifest["coverage"]["expected_rows"]:
         raise ContractError("base schema/row count mismatch")

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from bisect import bisect_left, insort
 from collections import deque
+from itertools import zip_longest
 from dataclasses import dataclass
 import fcntl
 import hashlib
@@ -83,6 +84,12 @@ def scaled_less(a, fraction, b):
     return a.e<rhs_e or a.e==rhs_e and a.m<rhs_m
 
 
+def scaled_square_divide(a, b):
+    if a.zero:return ScaledSum()
+    if b.zero:raise ContractError("zero scaled denominator")
+    result=ScaledSum();result.add_parts((a.m*a.m)/b.m,2*a.e-b.e);return result
+
+
 def history_mask(source, halted, elapsed, startup, usable, possible, minimum):
     reason=Reason(0)
     if source==SourceStatus.UNVERIFIED:reason|=Reason.SOURCE_UNVERIFIED
@@ -138,6 +145,13 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
     output=Path(output)
     if (output/"manifest.json").exists():
         manifest=verify_feature_partition(output,base_partition,config=config)
+        expected_base_sha=sha256_file(base_partition/"manifest.json")[0]
+        expected_implementation=_implementation_identity()
+        if (manifest["contract_identity"]!=contract_identity(config)
+                or manifest["implementation_identity"]!=expected_implementation
+                or manifest["inputs"]!={"base_manifest_sha256":expected_base_sha,
+                    "base_compatibility_sha256":base_manifest["base_compatibility"]["sha256"]}):
+            raise ContractError("completed features do not match requested config/base/implementation")
         return BuildResult(digest(manifest["member"]),manifest["contract_identity"],output/"manifest.json",manifest["coverage"]["expected_rows"])
     if output.exists() and any(output.iterdir()):raise FileExistsError(output)
     output.parent.mkdir(parents=True,exist_ok=True);lock_path=output.parent/f".{output.name}.lock"
@@ -163,7 +177,7 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
     exact_breaks={source:set(context["instantaneous_breaks"].get(source,[]))|{x[0] for x in context["gaps"].get(source,[])} for source in ("quotes","trades")}
     views=[]
     for view in config.views:
-        views.append({"view":view,"lambda":2**(-1/view.half_life_seconds),"u1":ScaledSum(),"u2":ScaledSum(),"w":ScaledSum(),"wp":ScaledSum(),
+        views.append({"view":view,"lambda":2**(-1/view.half_life_seconds),"u1":ScaledSum(),"u2":ScaledSum(),"c":ScaledSum(),"w":ScaledSum(),"wp":ScaledSum(),
                       **{f:Family.new() for f in ("spread","activity_count","activity_share","activity_dollar","bid_size","ask_size")},"ever_positive":False})
     windows={(a,h):AgeWindow(h) for a in AGES for h in config.age_windows_seconds};ring=deque(maxlen=6);quote_elapsed=trade_elapsed=0;underflows=0
     fs,ss=feature_schema(config),support_schema(config);fw=pq.ParquetWriter(feature_path,fs,compression="zstd",compression_level=3);sw=pq.ParquetWriter(support_path,ss,compression="zstd",compression_level=3)
@@ -175,7 +189,7 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
         if halt:
             ring.clear();quote_elapsed=trade_elapsed=0
             for state in views:
-                for key in ("u1","u2","w","wp"):state[key]=ScaledSum()
+                for key in ("u1","u2","c","w","wp"):state[key]=ScaledSum()
                 for family in ("spread","activity_count","activity_share","activity_dollar","bid_size","ask_size"):state[family]=Family.new()
                 state["ever_positive"]=False
             for window in windows.values():window.clear()
@@ -187,9 +201,15 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
             if len(ring)==6:r=endpoint_return(ring[0][0],ring[-1][0],continuity_same=ring[0][1]==ring[-1][1],crosses_halt=False)
             for state in views:
                 l=state["lambda"]
-                for key in ("u1","u2","w","wp"):state[key].decay(l)
+                for key in ("u1","u2","c","w","wp"):state[key].decay(l)
                 if len(ring)==6:state["wp"].add_float(1)
                 if r is not None:
+                    magnitude=abs(r)
+                    if not state["w"].zero:
+                        mean=state["u1"].ratio(state["w"])
+                        denominator=ScaledSum(state["w"].m,state["w"].e);denominator.add_float(1)
+                        factor=state["w"].ratio(denominator)
+                        state["c"].add_float(factor*(magnitude-mean)*(magnitude-mean))
                     state["u1"].add_float(abs(r));state["u2"].add_square(r);state["w"].add_float(1);state["ever_positive"]|=r!=0
                 for family in ("spread","activity_count","activity_share","activity_dollar","bid_size","ask_size"):state[family].decay(l)
                 state["spread"].admit(row["spread_integral_bps_seconds"] or 0,row["spread_valid_duration_ns"]/NS)
@@ -218,9 +238,10 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
             if not return_reason and not state["ever_positive"]:part_reason|=int(Reason.ZERO_RETURN_VARIATION)
             part=None
             if not part_reason:
-                # U1^2/(W*U2), evaluated by mantissa/exponent composition.
-                exponent=2*state["u1"].e-state["w"].e-state["u2"].e
-                part=math.ldexp((state["u1"].m*state["u1"].m)/(state["w"].m*state["u2"].m),exponent)
+                k=scaled_square_divide(state["u1"],state["w"])
+                denominator=ScaledSum(k.m,k.e)
+                if not state["c"].zero:denominator.add_parts(state["c"].m,state["c"].e)
+                part=k.ratio(denominator)
                 if not 0<=part<=1:raise ContractError("participation invariant failed")
             names={"midpoint_rms_5s_bps":(rms,return_reason),"movement_participation":(part,part_reason)}
             family_map={"quoted_spread_bps":("spread",config.spread_min_coverage,qstatus,quote_elapsed),"trade_rate_per_second":("activity_count",config.other_min_coverage,tstatus,trade_elapsed),"share_rate_per_second":("activity_share",config.other_min_coverage,tstatus,trade_elapsed),"dollar_rate_usd_per_second":("activity_dollar",config.other_min_coverage,tstatus,trade_elapsed),"bid_size_mean_shares":("bid_size",config.other_min_coverage,qstatus,quote_elapsed),"ask_size_mean_shares":("ask_size",config.other_min_coverage,qstatus,quote_elapsed)}
@@ -259,17 +280,24 @@ def verify_feature_partition(root,base_partition,*,config=DEFAULT_CONFIG):
     root=Path(root);base_partition=Path(base_partition);manifest=read_json(root/"manifest.json")
     required={"manifest_version","member","coverage","inputs","source_units","contract_identity","implementation_identity","outputs","validation","complete"}
     if set(manifest)!=required or not manifest["complete"]:raise ContractError("invalid feature manifest")
+    if manifest["contract_identity"]!=contract_identity(config):raise ContractError("feature config identity mismatch")
+    if manifest["implementation_identity"]!=_implementation_identity():raise ContractError("feature implementation identity mismatch")
     if manifest["inputs"]["base_manifest_sha256"]!=sha256_file(base_partition/"manifest.json")[0]:raise ContractError("feature/base identity mismatch")
     records={r["path"]:r for r in manifest["outputs"]}
     if set(records)!={"features.parquet","support.parquet"}:raise ContractError("feature companions missing")
     schemas={"features.parquet":feature_schema(config),"support.parquet":support_schema(config)}
-    keys=[]
+    key_iterators=[]
     for name,kind in (("features.parquet","features"),("support.parquet","support")):
         path=verify_output(root,records[name]);pf=pq.ParquetFile(path)
+        if records[name]["schema_sha256"]!=schema_hash(schemas[name]):raise ContractError("feature companion schema identity mismatch")
         if not pf.schema_arrow.equals(schemas[name],check_metadata=True) or pf.metadata.num_rows!=manifest["coverage"]["expected_rows"]:raise ContractError("feature companion schema/count mismatch")
-        previous=None;these=[]
-        for batch in pf.iter_batches(batch_size=4096,use_threads=False):
-            previous=validate_batch(batch,kind,config=config,previous_key=previous);these.extend(zip(*(batch.column(i).to_pylist() for i in range(3))))
-        keys.append(these)
-    if keys[0]!=keys[1]:raise ContractError("feature/support key mismatch")
+        def keys(parquet_file, table_kind):
+            previous=None
+            for batch in parquet_file.iter_batches(batch_size=4096,use_threads=False):
+                previous=validate_batch(batch,table_kind,config=config,previous_key=previous)
+                yield from zip(*(batch.column(i).to_pylist() for i in range(3)))
+        key_iterators.append(keys(pf,kind))
+    sentinel=object()
+    for left,right in zip_longest(*key_iterators,fillvalue=sentinel):
+        if left is sentinel or right is sentinel or left!=right:raise ContractError("feature/support key mismatch")
     return manifest

@@ -7,10 +7,10 @@ from pathlib import Path
 from ..contracts.config import ContractError
 from ..contracts.policy import NS, session_bounds
 from ..contracts.source import SourceUnits
-from ..integrity import read_json, safe_relative, write_atomic_json
+from ..integrity import read_json, safe_relative, sha256_file, write_atomic_json
 
 PAIR_FIELDS = {"version", "symbol", "session_date", "currency", "adapter", "root",
-               "streams", "source_units"}
+               "evidence_root", "streams", "source_units"}
 CONTEXT_FIELDS = {"version", "member", "coverage", "observation_intervals", "gaps",
                   "instantaneous_breaks", "halts", "halt_evidence", "seed",
                   "selection", "discovery"}
@@ -49,18 +49,21 @@ def load_member_descriptors(source_pair, member_context):
         raise ContractError("source/context member mismatch")
     if pair["adapter"] != "massive_canonical_tq_v1":
         raise ContractError("unsupported source adapter")
-    root = Path(pair["root"])
-    if not root.is_absolute():
-        raise ContractError("source root must be absolute")
+    root = Path(pair["root"]); evidence_root=Path(pair["evidence_root"])
+    if not root.is_absolute() or not evidence_root.is_absolute():
+        raise ContractError("source/evidence roots must be absolute")
     if set(pair["streams"]) != {"quotes", "trades"}:
         raise ContractError("complete T/Q pair required")
     for name, stream in pair["streams"].items():
         required = {"path", "sha256", "bytes", "rows", "schema_sha256", "clock",
                     "provenance_sha256", "coverage_evidence_sha256",
-                    "terminal_complete"}
+                    "provenance_path", "coverage_evidence_path", "terminal_complete"}
         if set(stream) != required or stream["clock"] != "sip_timestamp_utc_ns":
             raise ContractError(f"malformed {name} descriptor")
         safe_relative(stream["path"])
+        for path_key,hash_key in (("provenance_path","provenance_sha256"),("coverage_evidence_path","coverage_evidence_sha256")):
+            evidence_path=evidence_root/safe_relative(stream[path_key])
+            if sha256_file(evidence_path)[0]!=stream[hash_key]:raise ContractError(f"{name} evidence identity mismatch")
         if not stream["terminal_complete"]:
             raise ContractError(f"{name} terminal coverage is unresolved")
         for key in ("sha256", "schema_sha256", "provenance_sha256", "coverage_evidence_sha256"):
@@ -68,10 +71,19 @@ def load_member_descriptors(source_pair, member_context):
                 raise ContractError(f"invalid {name} {key}")
         if type(stream["bytes"]) is not int or stream["bytes"] < 0 or type(stream["rows"]) is not int or stream["rows"] < 0:
             raise ContractError(f"invalid {name} counts")
+    unit_value=dict(pair["source_units"])
+    if set(unit_value)!={"quote_size_unit","quote_size_evidence_sha256","quote_size_evidence_path","trade_quantity_evidence_sha256","trade_quantity_evidence_path","round_lot_shares"}:
+        raise ContractError("malformed source units")
+    quote_unit_path=evidence_root/safe_relative(unit_value.pop("quote_size_evidence_path"));trade_unit_path=evidence_root/safe_relative(unit_value.pop("trade_quantity_evidence_path"))
+    if sha256_file(quote_unit_path)[0]!=unit_value["quote_size_evidence_sha256"] or sha256_file(trade_unit_path)[0]!=unit_value["trade_quantity_evidence_sha256"]:raise ContractError("source-unit evidence identity mismatch")
     try:
-        units = SourceUnits(**pair["source_units"])
+        units = SourceUnits(**unit_value)
     except TypeError as error:
         raise ContractError("malformed source units") from error
+    quote_unit_body=read_json(quote_unit_path);trade_unit_body=read_json(trade_unit_path)
+    if (quote_unit_body!={"version":"source_units_v1","member":member,"stream":"quotes","object_sha256":pair["streams"]["quotes"]["sha256"],"unit":units.quote_size_unit,"multiplier":units.multiplier}
+            or trade_unit_body!={"version":"source_units_v1","member":member,"stream":"trades","object_sha256":pair["streams"]["trades"]["sha256"],"quantity_precedence":"decimal_size_then_size","scale":9}):
+        raise ContractError("source-unit evidence does not support declared objects/units")
     cov = context["coverage"]
     if set(cov) != {"kind", "session_start_ns", "end_ns", "expected_rows"}:
         raise ContractError("malformed coverage")
@@ -87,15 +99,23 @@ def load_member_descriptors(source_pair, member_context):
     if set(context["observation_intervals"]) != {"quotes", "trades"}:
         raise ContractError("observation intervals required")
     for source in ("quotes", "trades"):
-        _intervals(context["observation_intervals"][source], source, session_start, cov["end_ns"])
+        declared=_intervals(context["observation_intervals"][source], source, session_start, cov["end_ns"])
+        coverage=read_json(evidence_root/safe_relative(pair["streams"][source]["coverage_evidence_path"]))
+        expected={"version","member","stream","intervals","terminal_complete"}
+        if set(coverage)!=expected or coverage["version"]!="source_coverage_v1" or coverage["member"]!=member or coverage["stream"]!=source or coverage["terminal_complete"] is not True or tuple(map(tuple,coverage["intervals"]))!=declared:
+            raise ContractError(f"{source} coverage evidence does not support declared intervals")
         _intervals(context["gaps"].get(source, []), source + " gaps", session_start, cov["end_ns"])
         points = context["instantaneous_breaks"].get(source, [])
         if type(points) is not list or any(type(x) is not int or not session_start <= x < cov["end_ns"] for x in points):
             raise ContractError("invalid instantaneous breaks")
-    if context["halt_evidence"].get("status") not in ("verified_empty", "accepted_intervals"):
+    if set(context["halt_evidence"])!={"status","path","sha256"} or context["halt_evidence"].get("status") not in ("verified_empty", "accepted_intervals"):
         raise ContractError("halt context unresolved")
     if type(context["halts"]) is not list:
         raise ContractError("invalid halts")
+    halt_path=evidence_root/safe_relative(context["halt_evidence"]["path"])
+    if sha256_file(halt_path)[0]!=context["halt_evidence"]["sha256"]:raise ContractError("halt evidence identity mismatch")
+    halt_body=read_json(halt_path)
+    if halt_body.get("member")!=member or halt_body.get("status")!=context["halt_evidence"]["status"] or halt_body.get("halts")!=context["halts"]:raise ContractError("halt evidence does not support context")
     return pair, context, root, units
 
 
