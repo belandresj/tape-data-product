@@ -21,12 +21,14 @@ def parser():
     from tape_data_product.analysis.cli import register_commands as analysis
     from tape_data_product.replay.cli import register_commands as replay
     from tape_data_product.calculate import register_commands as calculate
+    from tape_data_product.query.endpoint_cli import register_commands as endpoint
 
     acquisition(commands)
     features(commands)
     analysis(commands)
     replay(commands)
     calculate(commands)
+    endpoint(commands)
     return result
 
 
