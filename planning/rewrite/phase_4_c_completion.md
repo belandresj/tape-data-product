@@ -1,6 +1,6 @@
 # Phase 4 checkpoint C — first real-data joint preview
 
-**Status: first C preview delivered on 2026-09-15; checkpoint C and Phase 4 remain incomplete.** This record covers the requested six pooled joint histograms on the fixed 24-member checkpoint-A pilot. Session ECDFs, activity-conditioned pages, full-population execution, and final report integration are subsequent work.
+**Status: expanded C preview and second-size scaling check delivered on 2026-09-15; checkpoint C and Phase 4 remain incomplete.** This record covers the six pooled joint histograms, activity/session partitions, and a bounded 120-member scaling sample. Full-population execution, session ECDFs, and final report integration remain subsequent work.
 
 ## Scope and identity
 
@@ -88,4 +88,27 @@ The gated pilot is much more member-concentrated than the unconditional preview.
 
 The one-pass real invocation processed 1,382,400 rows in 360 batches. File verification took 1.523 seconds, scan/expanded aggregation 18.604 seconds, rendering three pages from saved tables 6.811 seconds, and total wall time 29.670 seconds. Peak sampled process-tree RSS was 756,797,440 bytes, output was 1,796,809 bytes and spill was zero. The cache was uncontrolled/warm and the result is not a cold benchmark. The VM artifacts are `/srv/tape-data-product/reports/phase4-c-expanded-pilot-fbdb613`; the ignored inspection copy is `local_docs/phase4-c-expanded-pilot-fbdb613`.
 
-All validity partitions, extended histogram totals, activity-band partitions, session-to-pooled sums, member contributions, gate/member accounting and payload hashes reconcile. The three figures were visually checked at original resolution; axes, logarithmic color scales, reference lines, labels and footnotes are legible and unclipped. This accepts the expanded 24-member pilot mechanics only. A second-size scaling benchmark and the explicitly authorized 5,208-member execution remain pending.
+All validity partitions, extended histogram totals, activity-band partitions, session-to-pooled sums, member contributions, gate/member accounting and payload hashes reconcile. The three figures were visually checked at original resolution; axes, logarithmic color scales, reference lines, labels and footnotes are legible and unclipped. This accepts the expanded 24-member pilot mechanics only; the larger scaling evidence follows.
+
+## 120-member scaling check, 2026-09-15
+
+The bounded scaling reference contains exactly five feature-blind selections from each event-count rank quartile in each of the six represented months: 120 symbol-days and 6,912,000 one-second rows. Selection is deterministic (`month_event_rank_quartiles_five_per_cell_v1`, seed `phase4-scaling-v1`) and does not inspect feature values. Reference identity is `43d4de38f3d6e5d623e85b705a1c327ea7e830a1d5f83eac8a2bff02691abe35`. Constructing and fully validating the reference took 43.191 seconds and consumed 1,558,069,782 validation bytes plus 20,055,676 metadata bytes.
+
+The generalized expanded runner at `0b1c1d8bdd865246ef5170e50b01ced404be24f3` processed the reference once, projecting the same ten fields and producing the same 208 numerical panel partitions. Its isolated wheel SHA-256 is `6ac1657a8573dec8859092d5606cd0165129694152f591cea2f080c58b5de21e`. The presentation-only follow-up at `d696cf1076200075fb6f5871053d7bf594b2fb26` makes titles population-aware and adds saved-table re-rendering; its isolated wheel SHA-256 is `292f8b4c62473a402182469468f8c5299284c59bf16f10a4619623c3db1af6b6`. Twenty-eight focused tests passed from that installed wheel in 1.73 seconds.
+
+| Measurement | 24 members | 120 members | Scaling |
+|---|---:|---:|---:|
+| Represented rows | 1,382,400 | 6,912,000 | 5.00x |
+| Scan and expanded aggregation | 18.604 s | 92.535 s | 4.974x |
+| File verification | 1.523 s | 5.408 s | 3.55x |
+| Figure rendering | 6.811 s | 6.773 s | effectively flat |
+| Peak sampled process-tree RSS | 756,797,440 B | 763,707,392 B | 1.009x |
+| Spill | 0 B | 0 B | unchanged |
+
+The 120-member run completed in 107.401 seconds total under one worker/library thread, a 300-second wall limit, a 2 GiB sampled RSS stop, a 3 GiB hard ceiling, and no swap. The cache was uncontrolled and mixed/warm after reference construction, so the verification timing is not a cold-cache claim. All 579,184 histogram cells, 24,960 member-contribution rows, validity partitions, activity bands, session-to-pooled sums, gate accounting, and artifact hashes reconcile exactly.
+
+The larger sample materially reduces composition noise. The fast and slow gates retain 781,985 (11.31%) and 694,727 (10.05%) represented observations. The largest member contributes about 5.0% of fast and 5.45% of slow gated pair-valid observations, versus 17.4% and 19.2% in the 24-member pilot; top-five concentration falls from 59.7%/63.7% to approximately 19.6%/21.3%. The activity-conditioned RMS/spread diagonal and the upward activity shift remain visible and are substantially smoother. This supports producing the full-universe descriptive plots, while still not establishing predictive or executable edge.
+
+The measured row-linear projection from 120 to all 5,208 members is 66.9 minutes for aggregation and 3.9 minutes for verification, followed by roughly seven seconds of rendering. Because the verification measurement was warm and operational overhead is not perfectly linear, budget **75–100 minutes after the full reference exists**. Building and validating that full reference projects to another 31 minutes centrally; budget **about two hours end to end, with a 2.5-hour operational window** for the first full run. Memory should remain below 1 GiB on the observed flat scaling curve, so the existing 2 GiB stop and 3 GiB hard ceiling remain adequate. These are extrapolations, not measured full-corpus timings.
+
+Numerical outputs are durable. Re-rendering the three figures from saved histogram and coverage tables took 6.682 seconds and did not rescan feature data, so legend, title, color, and layout iterations do not require rerunning the long aggregation. The VM result is `/srv/tape-data-product/reports/phase4-c-expanded-scaling120-0b1c1d8`; the ignored inspection copy is `local_docs/phase4-c-expanded-scaling120-0b1c1d8`. The full-universe run was not started by this scaling check.
