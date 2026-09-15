@@ -146,6 +146,7 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
     integer(batch_size,"batch size",1,25000)
     if not isinstance(config,FeatureConfig):raise ContractError("invalid feature config")
     base_partition=Path(base_partition);base_manifest=verify_base_partition(base_partition)
+    frozen_base={name:sha256_file(base_partition/name)[0] for name in ("manifest.json","base.parquet","context.json")}
     expected_cap=base_manifest["base_compatibility"]["descriptor"]["max_trade_reporting_age_ns"]
     if expected_cap!=config.max_trade_reporting_age_ns:raise ContractError("base raw measurement policy is incompatible")
     output=Path(output)
@@ -167,6 +168,9 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
         attempt=Path(tempfile.mkdtemp(prefix=f".{output.name}.attempt-",dir=output.parent))
         try:
             rows,underflows=_calculate(base_partition/"base.parquet",base_partition/"context.json",attempt/"features.parquet",attempt/"support.parquet",config,batch_size)
+            if any(sha256_file(base_partition/name)[0]!=value for name,value in frozen_base.items()):
+                raise ContractError("base/context changed during feature calculation")
+            verify_base_partition(base_partition)
             base_sha=sha256_file(base_partition/"manifest.json")[0];implementation=_implementation_identity()
             records=[output_record(attempt/"features.parquet",rows=rows,schema_sha256=schema_hash(feature_schema(config))),output_record(attempt/"support.parquet",rows=rows,schema_sha256=schema_hash(support_schema(config)))]
             manifest={"manifest_version":"tape_member_manifest_v1","member":base_manifest["member"],"coverage":base_manifest["coverage"],

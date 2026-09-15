@@ -8,6 +8,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import tape_data_product.features.endpoint_ew as endpoint_module
 
 from tape_data_product.contracts import DEFAULT_CONFIG,contract_identity
 from tape_data_product.contracts.config import EWView,FeatureConfig
@@ -198,12 +199,28 @@ def test_manifest_declared_rows_are_verified(tmp_path):
 
 def test_one_worker_plan_executes_base_then_features(tmp_path):
     pair,context=fixture(tmp_path,70);wheel=tmp_path/"candidate.whl";wheel.write_bytes(b"synthetic-wheel-identity")
-    transfer_manifest_sha="b"*64;completion=tmp_path/"transfer-complete.json";completion.write_text(json.dumps({"status":"complete","expected_members":1,"manifest_sha256":transfer_manifest_sha}))
+    transfer_manifest=tmp_path/"transfer.jsonl";transfer_records=[{"kind":"canonical_tq","session_date":"2026-09-02","symbol":"SYN","stream":"quotes","size_bytes":3},{"kind":"canonical_tq","session_date":"2026-09-02","symbol":"SYN","stream":"trades","size_bytes":5}];transfer_manifest.write_text("".join(json.dumps(x)+"\n" for x in transfer_records));transfer_manifest_sha=sha256_file(transfer_manifest)[0]
+    completion=tmp_path/"transfer-complete.json";completion.write_text(json.dumps({"status":"complete","expected_members":1,"manifest_sha256":transfer_manifest_sha,"objects":2,"bytes":8}))
+    measurement=tmp_path/"measurement.json";measurement.write_text(json.dumps({"status":"accepted","kind":"representative_measurement"}))
     member={"session_date":"2026-09-02","symbol":"SYN"}
     release={"source_revision":"a"*40,"wheel_path":str(wheel),"wheel_sha256":sha256_file(wheel)[0],"executable":sys.executable,"contract_identity":contract_identity(),"base_implementation_identity":base_implementation_identity()["sha256"],"feature_implementation_identity":feature_implementation_identity()["sha256"]}
-    inventory={"members":[member],"transfer_complete":True,"transfer_manifest_sha256":transfer_manifest_sha,"transfer_completion":{"path":str(completion),"sha256":sha256_file(completion)[0]},"measurement_references":["synthetic_fixture"],"release":release,"base_root":str(tmp_path/"run-base"),"feature_root":str(tmp_path/"run-features"),"ledger_path":str(tmp_path/"run-ledger.sqlite")}
+    inventory={"members":[member],"transfer_complete":True,"transfer_manifest_path":str(transfer_manifest),"transfer_manifest_sha256":transfer_manifest_sha,"transfer_expected_objects":2,"transfer_expected_bytes":8,"transfer_completion":{"path":str(completion),"sha256":sha256_file(completion)[0]},"measurement_references":[{"path":str(measurement),"sha256":sha256_file(measurement)[0]}],"release":release,"base_root":str(tmp_path/"run-base"),"feature_root":str(tmp_path/"run-features"),"ledger_path":str(tmp_path/"run-ledger.sqlite")}
     admissions={"findings":[{"member":"2026-09-02/SYN","state":"metadata_admitted","source_pair_path":str(pair),"member_context_path":str(context)}]};limits={"workers":1,"batch_size":7,"disk_reserve_bytes":0,"scratch_cap_bytes":0}
     for name,value in (("inventory-run.json",inventory),("admissions-run.json",admissions),("config-run.json",DEFAULT_CONFIG.to_dict()),("limits-run.json",limits)):(tmp_path/name).write_text(json.dumps(value))
     plan=create_plan(tmp_path/"inventory-run.json",tmp_path/"admissions-run.json",tmp_path/"config-run.json",tmp_path/"limits-run.json",tmp_path/"run-plan")
     result=run_plan(plan["plan"],plan["sha256"]);assert result["status"]=="complete" and result["members"]==1
     assert (tmp_path/"run-base/session_date=2026-09-02/symbol=SYN/manifest.json").exists() and (tmp_path/"run-features/session_date=2026-09-02/symbol=SYN/manifest.json").exists()
+
+def test_ambiguous_whole_second_halts_require_canonical_union(tmp_path):
+    pair,context=fixture(tmp_path,3);start,_=session_bounds("2026-09-02");c=json.loads(context.read_text())
+    c["halts"]=[{"start_ns":start+100,"end_ns":start+200,"id":"h1"},{"start_ns":start+300,"end_ns":start+400,"id":"h2"}];context.write_text(json.dumps(c))
+    with pytest.raises(ValueError,match="canonical union"):build_base_partition(pair,context,tmp_path/"base")
+
+def test_feature_build_rechecks_frozen_base_companions(tmp_path,monkeypatch):
+    pair,context=fixture(tmp_path,70);base=tmp_path/"base";build_base_partition(pair,context,base);original=endpoint_module._calculate
+    def mutate(*args,**kwargs):
+        result=original(*args,**kwargs)
+        with (base/"context.json").open("ab") as handle:handle.write(b" ")
+        return result
+    monkeypatch.setattr(endpoint_module,"_calculate",mutate)
+    with pytest.raises(ValueError,match="changed during feature calculation"):build_from_base(base,tmp_path/"features")

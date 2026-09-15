@@ -113,8 +113,20 @@ def load_member_descriptors(source_pair, member_context):
             raise ContractError("invalid instantaneous breaks")
     if set(context["halt_evidence"])!={"status","path","sha256"} or context["halt_evidence"].get("status") not in ("verified_empty", "accepted_intervals"):
         raise ContractError("halt context unresolved")
-    if type(context["halts"]) is not list:
+    if type(context["halts"]) is not list or len(context["halts"])>1024:
         raise ContractError("invalid halts")
+    previous_closed_end=None;halt_ids=set()
+    for halt in context["halts"]:
+        if (type(halt) is not dict or set(halt)!={"start_ns","end_ns","id"}
+                or type(halt["start_ns"]) is not int or type(halt["end_ns"]) is not int
+                or not session_start<=halt["start_ns"]<halt["end_ns"]<=cov["end_ns"]
+                or type(halt["id"]) is not str or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}",halt["id"])
+                or halt["id"] in halt_ids):
+            raise ContractError("invalid halt interval/identity")
+        closed_start=halt["start_ns"]//NS;closed_end=(halt["end_ns"]-1)//NS
+        if previous_closed_end is not None and closed_start<=previous_closed_end+1:
+            raise ContractError("overlapping/touching whole-second halt closures require canonical union")
+        previous_closed_end=closed_end;halt_ids.add(halt["id"])
     halt_path=evidence_root/safe_relative(context["halt_evidence"]["path"])
     if sha256_file(halt_path)[0]!=context["halt_evidence"]["sha256"]:raise ContractError("halt evidence identity mismatch")
     halt_body=read_json(halt_path)
