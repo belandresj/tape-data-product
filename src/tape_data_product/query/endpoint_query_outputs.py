@@ -148,6 +148,8 @@ class EndpointQueryExport:
         expected_names = list(dict.fromkeys(expected_names))
         if observation_schema.names != expected_names:
             raise ValueError("observation schema does not match query projection")
+        if schema_hash(observation_schema) != descriptor.get("observation_schema_sha256"):
+            raise ValueError("observation schema identity does not match query descriptor")
         if self.root.exists():
             raise FileExistsError("query output is immutable")
         self.root.mkdir(parents=True)

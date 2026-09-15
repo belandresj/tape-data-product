@@ -34,6 +34,7 @@ def query_descriptor(
     field_descriptors: Sequence[Mapping[str, object]],
     contract_identity: str,
     implementation_identity: str,
+    observation_schema_sha256: str,
 ) -> dict:
     descriptors = {row["name"]: row for row in field_descriptors}
     if not isinstance(reference_identity, str) or not reference_identity:
@@ -44,6 +45,12 @@ def query_descriptor(
         raise ValueError("contract identity is required")
     if not isinstance(implementation_identity, str) or not implementation_identity:
         raise ValueError("implementation identity is required")
+    if (
+        not isinstance(observation_schema_sha256, str)
+        or len(observation_schema_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in observation_schema_sha256)
+    ):
+        raise ValueError("observation schema identity must be lowercase SHA-256")
     if not isinstance(display_fields, (list, tuple)) or len(set(display_fields)) != len(
         display_fields
     ):
@@ -69,6 +76,7 @@ def query_descriptor(
         "required_sources": list(predicates.sources),
         "contract_identity": contract_identity,
         "implementation_identity": implementation_identity,
+        "observation_schema_sha256": observation_schema_sha256,
     }
 
 

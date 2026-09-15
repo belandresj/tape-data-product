@@ -12,7 +12,7 @@ from tape_data_product.query.endpoint_query_core import (
     query_descriptor,
     query_identity,
 )
-from tape_data_product.query.endpoint_query_outputs import EndpointQueryExport
+from tape_data_product.query.endpoint_query_outputs import EndpointQueryExport, schema_hash
 from tape_data_product.query.endpoint_runs import NS, RunBoundary
 
 
@@ -21,6 +21,18 @@ DESCRIPTORS = (
     {"name": "trade_metric", "reason_mask": "trade_metric_reason_mask", "sources": ["trade"]},
     {"name": "display_metric", "reason_mask": "display_metric_reason_mask", "sources": ["trade"]},
 )
+OBSERVATION_SCHEMA = pa.schema([
+    pa.field("session_date", pa.string(), False),
+    pa.field("symbol", pa.string(), False),
+    pa.field("interval_end_ns", pa.int64(), False),
+    pa.field("quote_metric", pa.float64(), True),
+    pa.field("quote_metric_reason_mask", pa.uint16(), False),
+])
+DISPLAY_OBSERVATION_SCHEMA = pa.schema([
+    *OBSERVATION_SCHEMA,
+    pa.field("display_metric", pa.float64(), True),
+    pa.field("display_metric_reason_mask", pa.uint16(), False),
+])
 
 
 def predicates(raw=None):
@@ -240,10 +252,15 @@ def test_query_identity_is_canonical_and_extra_display_does_not_change_matches()
         field_descriptors=DESCRIPTORS,
         contract_identity="contract",
         implementation_identity="implementation",
+        observation_schema_sha256=schema_hash(OBSERVATION_SCHEMA),
     )
     first = query_descriptor(**base)
     assert query_identity(first) == query_identity(query_descriptor(**base))
-    with_display = query_descriptor(**{**base, "display_fields": ["display_metric"]})
+    with_display = query_descriptor(**{
+        **base,
+        "display_fields": ["display_metric"],
+        "observation_schema_sha256": schema_hash(DISPLAY_OBSERVATION_SCHEMA),
+    })
     assert query_identity(first) != query_identity(with_display)
     test_row = row(0, 3, display_metric=None, display_metric_reason_mask=64)
     assert selected.evaluate(test_row).status == "matching"
@@ -262,15 +279,10 @@ def test_empty_export_retains_schemas_and_complete_accounting(tmp_path):
         field_descriptors=DESCRIPTORS,
         contract_identity="contract",
         implementation_identity="implementation",
+        observation_schema_sha256=schema_hash(OBSERVATION_SCHEMA),
     )
     identity = query_identity(descriptor)
-    observation_schema = pa.schema([
-        pa.field("session_date", pa.string(), False),
-        pa.field("symbol", pa.string(), False),
-        pa.field("interval_end_ns", pa.int64(), False),
-        pa.field("quote_metric", pa.float64(), True),
-        pa.field("quote_metric_reason_mask", pa.uint16(), False),
-    ])
+    observation_schema = OBSERVATION_SCHEMA
     export = EndpointQueryExport(
         tmp_path / "query", observation_schema=observation_schema,
         descriptor=descriptor, identity=identity, buffer_rows=1,
@@ -326,6 +338,7 @@ def test_export_rejects_mismatched_identity_and_projection(tmp_path):
         field_descriptors=DESCRIPTORS,
         contract_identity="contract",
         implementation_identity="implementation",
+        observation_schema_sha256=schema_hash(OBSERVATION_SCHEMA),
     )
     wrong_schema = pa.schema([
         pa.field("session_date", pa.string(), False),
@@ -342,6 +355,18 @@ def test_export_rejects_mismatched_identity_and_projection(tmp_path):
             tmp_path / "bad-schema", observation_schema=wrong_schema,
             descriptor=descriptor, identity=query_identity(descriptor),
         )
+    wrong_types = pa.schema([
+        pa.field("session_date", pa.string(), False),
+        pa.field("symbol", pa.string(), False),
+        pa.field("interval_end_ns", pa.int64(), False),
+        pa.field("quote_metric", pa.float32(), True),
+        pa.field("quote_metric_reason_mask", pa.int64(), False),
+    ])
+    with pytest.raises(ValueError, match="schema identity"):
+        EndpointQueryExport(
+            tmp_path / "bad-types", observation_schema=wrong_types,
+            descriptor=descriptor, identity=query_identity(descriptor),
+        )
 
 
 def test_nonempty_export_values_runs_and_hashes_reproduce(tmp_path):
@@ -354,17 +379,10 @@ def test_nonempty_export_values_runs_and_hashes_reproduce(tmp_path):
         field_descriptors=DESCRIPTORS,
         contract_identity="contract",
         implementation_identity="implementation",
+        observation_schema_sha256=schema_hash(DISPLAY_OBSERVATION_SCHEMA),
     )
     identity = query_identity(descriptor)
-    observation_schema = pa.schema([
-        pa.field("session_date", pa.string(), False),
-        pa.field("symbol", pa.string(), False),
-        pa.field("interval_end_ns", pa.int64(), False),
-        pa.field("quote_metric", pa.float64(), True),
-        pa.field("quote_metric_reason_mask", pa.uint16(), False),
-        pa.field("display_metric", pa.float64(), True),
-        pa.field("display_metric_reason_mask", pa.uint16(), False),
-    ])
+    observation_schema = DISPLAY_OBSERVATION_SCHEMA
     export = EndpointQueryExport(
         tmp_path / "nonempty", observation_schema=observation_schema,
         descriptor=descriptor, identity=identity, buffer_rows=1,
