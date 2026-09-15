@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
@@ -20,13 +21,14 @@ import pyarrow.parquet as pq
 from ..contracts import DEFAULT_CONFIG, contract_identity
 from ..contracts.config import ContractError, FeatureConfig, digest, integer
 from ..contracts.interfaces import BuildResult
-from ..contracts.policy import NS, endpoint_return
+from ..contracts.policy import NS
 from ..contracts.reasons import Reason, SourceStatus
 from ..contracts.registry import AGES, feature_registry
 from ..contracts.schemas import BASE_SCHEMA, feature_schema, support_schema, schema_hash
 from ..contracts.validation import validate_batch
 from ..integrity import read_json, sha256_file, write_atomic_json, output_record, verify_output
 from ..replay.builder import _open_verified_base_partition, _verify_base_partition
+from ._endpoint_ew_kernel import EndpointEWKernel, KERNEL_IMPLEMENTATION
 
 
 @dataclass(slots=True)
@@ -221,8 +223,9 @@ class AgeWindow:
 
 def _implementation_identity():
     root=Path(__file__).parent
-    files={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((Path(__file__),root.parent/"contracts"/"registry.py",root.parent/"contracts"/"schemas.py",root.parent/"contracts"/"validation.py",root.parent/"integrity.py"))}
-    return {"files":files,"sha256":digest(files)}
+    files={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((Path(__file__),root/"_endpoint_ew_kernel.py",root.parent/"contracts"/"registry.py",root.parent/"contracts"/"schemas.py",root.parent/"contracts"/"validation.py",root.parent/"integrity.py"))}
+    identity={"files":files,"numerical_kernel":KERNEL_IMPLEMENTATION}
+    return {**identity,"sha256":digest(identity)}
 
 
 def _file_snapshot(path):
@@ -300,9 +303,9 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
     fs,ss=feature_schema(config),support_schema(config)
     fbuf,sbuf=_ColumnBuffers(fs),_ColumnBuffers(ss)
     fp,sp=fbuf.positions,sbuf.positions
-    views=[]
+    view_plans=[]
     for view in config.views:
-        state=_ViewState(view);suffix=f"_hl{view.half_life_seconds}s"
+        suffix=f"_hl{view.half_life_seconds}s"
         feature_positions={name:(fp[name+suffix],fp[name+suffix+"_reason_mask"]) for name in (
             "midpoint_rms_5s_bps","movement_participation","quoted_spread_bps",
             "trade_rate_per_second","share_rate_per_second","dollar_rate_usd_per_second",
@@ -313,17 +316,8 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
             "activity_usable_exposure_seconds","activity_possible_exposure_seconds",
             "bid_size_usable_exposure_seconds","bid_size_possible_exposure_seconds",
             "ask_size_usable_exposure_seconds","ask_size_possible_exposure_seconds")}
-        family_plans=(
-            (state.spread.numerator,state.spread.usable,config.spread_min_coverage,False,feature_positions["quoted_spread_bps"]),
-            (state.activity_count,state.activity_usable,config.other_min_coverage,True,feature_positions["trade_rate_per_second"]),
-            (state.activity_share,state.activity_usable,config.other_min_coverage,True,feature_positions["share_rate_per_second"]),
-            (state.activity_dollar,state.activity_usable,config.other_min_coverage,True,feature_positions["dollar_rate_usd_per_second"]),
-            (state.bid_size.numerator,state.bid_size.usable,config.other_min_coverage,False,feature_positions["bid_size_mean_shares"]),
-            (state.ask_size.numerator,state.ask_size.usable,config.other_min_coverage,False,feature_positions["ask_size_mean_shares"]),
-        )
-        support_plans=(("spread",state.spread.usable),("activity",state.activity_usable),
-                       ("bid_size",state.bid_size.usable),("ask_size",state.ask_size.usable))
-        views.append((state,feature_positions,support_positions,family_plans,support_plans))
+        view_plans.append((feature_positions,support_positions))
+    kernel=EndpointEWKernel(config.views,config.spread_min_coverage,config.other_min_coverage)
     windows={(a,h):AgeWindow(h) for a in AGES for h in config.age_windows_seconds}
     age_plans=[]
     for h in config.age_windows_seconds:
@@ -335,7 +329,7 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
     quote_windows=tuple(windows[a,h] for a in ("quote","midpoint_change") for h in config.age_windows_seconds)
     trade_windows=tuple(windows["trade",h] for h in config.age_windows_seconds)
     base_positions={name:i for i,name in enumerate(BASE_SCHEMA.names)}
-    ring=deque(maxlen=6);quote_elapsed=trade_elapsed=0;underflows=0
+    underflows=0
     fw=pq.ParquetWriter(feature_path,fs,compression="zstd",compression_level=3)
     sw=pq.ParquetWriter(support_path,ss,compression="zstd",compression_level=3)
     previous=None;first=None;last=None;processed_rows=0
@@ -366,15 +360,15 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
        bid,bid_valid=numeric(batch,"bid_end_usd");ask,ask_valid=numeric(batch,"ask_end_usd")
        price_reason,_=numeric(batch,"price_end_reason_mask")
        continuity,_=numeric(batch,"quote_continuity_id")
-       spread,spread_valid=numeric(batch,"spread_integral_bps_seconds")
+       spread,_=numeric(batch,"spread_integral_bps_seconds")
        spread_duration,_=numeric(batch,"spread_valid_duration_ns")
-       activity_count,activity_count_valid=numeric(batch,"trade_count_1s")
-       activity_share,activity_share_valid=numeric(batch,"share_volume_1s",pa.float64())
-       activity_dollar,activity_dollar_valid=numeric(batch,"dollar_volume_1s_usd")
+       activity_count,_=numeric(batch,"trade_count_1s")
+       activity_share,_=numeric(batch,"share_volume_1s",pa.float64())
+       activity_dollar,_=numeric(batch,"dollar_volume_1s_usd")
        activity_duration,_=numeric(batch,"activity_valid_duration_ns")
-       bid_size,bid_size_valid=numeric(batch,"bid_size_integral_shares_seconds")
+       bid_size,_=numeric(batch,"bid_size_integral_shares_seconds")
        bid_size_duration,_=numeric(batch,"bid_size_valid_duration_ns")
-       ask_size,ask_size_valid=numeric(batch,"ask_size_integral_shares_seconds")
+       ask_size,_=numeric(batch,"ask_size_integral_shares_seconds")
        ask_size_duration,_=numeric(batch,"ask_size_valid_duration_ns")
        quote_break,_=numeric(batch,"quote_continuity_break_in_second")
        trade_break,_=numeric(batch,"trade_continuity_break_in_second")
@@ -384,39 +378,23 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
        for age in AGES:
            age_values[age],age_valid[age]=numeric(batch,f"{age}_age_seconds")
            age_reasons[age],_=numeric(batch,f"{age}_age_reason_mask")
+       kernel_values,kernel_masks,kernel_support,quote_elapsed_rows,trade_elapsed_rows,batch_underflows=kernel.process(
+           halt=np.asarray(halt),quote_status=np.asarray(qstatus),trade_status=np.asarray(tstatus),
+           bid=np.asarray(bid),bid_valid=np.asarray(bid_valid),ask=np.asarray(ask),ask_valid=np.asarray(ask_valid),
+           price_reason=np.asarray(price_reason),continuity=np.asarray(continuity),
+           spread_numerator=np.asarray(spread),spread_exposure=np.asarray(spread_duration,dtype=np.float64)/NS,
+           activity_count=np.asarray(activity_count,dtype=np.float64),activity_share=np.asarray(activity_share),
+           activity_dollar=np.asarray(activity_dollar),activity_exposure=np.asarray(activity_duration,dtype=np.float64)/NS,
+           bid_size_numerator=np.asarray(bid_size),bid_size_exposure=np.asarray(bid_size_duration,dtype=np.float64)/NS,
+           ask_size_numerator=np.asarray(ask_size),ask_size_exposure=np.asarray(ask_size_duration,dtype=np.float64)/NS,
+       )
+       underflows+=batch_underflows
        for i in range(batch.num_rows):
         halted=bool(halt[i]);qs=int(qstatus[i]);ts=int(tstatus[i]);row_end=int(end_ns[i])
+        quote_elapsed=int(quote_elapsed_rows[i]);trade_elapsed=int(trade_elapsed_rows[i])
         if halted:
-            ring.clear();quote_elapsed=trade_elapsed=0
-            for state,_,_,_,_ in views:state.clear()
             for window in windows.values():window.clear()
         else:
-            quote_elapsed+=1;trade_elapsed+=1
-            midpoint=float(bid[i]/2+ask[i]/2) if price_reason[i]==0 and bid_valid[i] and ask_valid[i] else None
-            ring.append((midpoint,int(continuity[i]),row_end))
-            r=None
-            if len(ring)==6:r=endpoint_return(ring[0][0],ring[-1][0],continuity_same=ring[0][1]==ring[-1][1],crosses_halt=False)
-            for state,_,_,_,_ in views:
-                state.decay();state.exposure_possible.add_valid(1)
-                if len(ring)==6:state.return_possible.add_valid(1)
-                if r is not None:
-                    magnitude=abs(r)
-                    if not state.return_usable.zero:
-                        mean=state.u1.ratio(state.return_usable)
-                        denominator=ScaledSum(state.return_usable.m,state.return_usable.e);denominator.add_valid(1)
-                        factor_m,factor_e=scaled_ratio_parts(state.return_usable,denominator)
-                        delta_m,delta_e=math.frexp(abs(magnitude-mean))
-                        state.central.add_parts(factor_m*delta_m*delta_m,factor_e+2*delta_e)
-                    state.u1.add_valid(magnitude);state.u2.add_square(r);state.return_usable.add_valid(1);state.ever_positive|=r!=0
-                spread_exposure=spread_duration[i]/NS
-                state.spread.admit(spread[i] if spread_valid[i] else 0,spread_exposure)
-                activity_exposure=activity_duration[i]/NS
-                state.admit_activity(activity_count[i] if activity_count_valid[i] else 0,
-                                     activity_share[i] if activity_share_valid[i] else 0,
-                                     activity_dollar[i] if activity_dollar_valid[i] else 0,
-                                     activity_exposure)
-                state.bid_size.admit(bid_size[i] if bid_size_valid[i] else 0,bid_size_duration[i]/NS)
-                state.ask_size.admit(ask_size[i] if ask_size_valid[i] else 0,ask_size_duration[i]/NS)
             if quote_break[i]:
                 for window in quote_windows:window.clear()
             if trade_break[i]:
@@ -430,41 +408,21 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
                     for h in config.age_windows_seconds:windows[a,h].append(value)
         fbuf.append_keys(date,symbol,row_end);sbuf.append_keys(date,symbol,row_end)
         fc,sc=fbuf.columns,sbuf.columns
-        for state,fpos,spos,family_plans,support_plans in views:
-            view=state.view
-            return_reason=history_mask(qs,halted,quote_elapsed,view.startup_seconds,state.return_usable,state.return_possible,config.other_min_coverage)
-            rms=state.u2.sqrt_ratio(state.return_usable) if not return_reason else None
-            part_reason=return_reason
-            if not return_reason and not state.ever_positive:part_reason|=int(Reason.ZERO_RETURN_VARIATION)
-            part=None
-            if not part_reason:
-                k=scaled_square_divide(state.u1,state.return_usable)
-                denominator=ScaledSum(k.m,k.e)
-                if not state.central.zero:denominator.add_parts(state.central.m,state.central.e)
-                part=k.ratio(denominator)
-                if not 0<=part<=1:raise ContractError("participation invariant failed")
-            rms_slots=fpos["midpoint_rms_5s_bps"];fc[rms_slots[0]].append(rms);fc[rms_slots[1]].append(return_reason)
-            part_slots=fpos["movement_participation"];fc[part_slots[0]].append(part);fc[part_slots[1]].append(part_reason)
-            spread_value=None;spread_reason=0
-            for family_index,(numerator,usable,minimum,is_trade,slots) in enumerate(family_plans):
-                status,elapsed=(ts,trade_elapsed) if is_trade else (qs,quote_elapsed)
-                reason=history_mask(status,halted,elapsed,view.startup_seconds,usable,state.exposure_possible,minimum)
-                value=numerator.ratio(usable) if not reason else None
-                fc[slots[0]].append(value);fc[slots[1]].append(reason)
-                if family_index==0:spread_value=value;spread_reason=reason
-            ratio_reason=return_reason|spread_reason
-            if not ratio_reason and spread_value==0:ratio_reason|=int(Reason.ZERO_SPREAD)
-            ratio_slots=fpos["midpoint_rms_5s_to_spread"]
-            fc[ratio_slots[0]].append(rms/spread_value if not ratio_reason else None);fc[ratio_slots[1]].append(ratio_reason)
-            return_usable=state.return_usable.value();return_possible=state.return_possible.value()
-            sc[spos["return_usable_weight"]].append(return_usable);sc[spos["return_possible_weight"]].append(return_possible)
-            if not state.return_usable.zero and return_usable==0:underflows+=1
-            possible=state.exposure_possible.value()
-            for family,usable_state in support_plans:
-                usable=usable_state.value()
-                sc[spos[f"{family}_usable_exposure_seconds"]].append(usable)
-                sc[spos[f"{family}_possible_exposure_seconds"]].append(possible)
-                if not usable_state.zero and usable==0:underflows+=1
+        feature_names=("midpoint_rms_5s_bps","movement_participation","quoted_spread_bps",
+                       "trade_rate_per_second","share_rate_per_second","dollar_rate_usd_per_second",
+                       "bid_size_mean_shares","ask_size_mean_shares","midpoint_rms_5s_to_spread")
+        support_names=("return_usable_weight","return_possible_weight",
+                       "spread_usable_exposure_seconds","spread_possible_exposure_seconds",
+                       "activity_usable_exposure_seconds","activity_possible_exposure_seconds",
+                       "bid_size_usable_exposure_seconds","bid_size_possible_exposure_seconds",
+                       "ask_size_usable_exposure_seconds","ask_size_possible_exposure_seconds")
+        for view_index,(fpos,spos) in enumerate(view_plans):
+            for output_index,name in enumerate(feature_names):
+                slots=fpos[name];reason=int(kernel_masks[i,view_index,output_index])
+                fc[slots[0]].append(None if reason else float(kernel_values[i,view_index,output_index]))
+                fc[slots[1]].append(reason)
+            for output_index,name in enumerate(support_names):
+                sc[spos[name]].append(float(kernel_support[i,view_index,output_index]))
         sc[sp["quote_ew_startup_elapsed_seconds"]].append(quote_elapsed)
         sc[sp["trade_ew_startup_elapsed_seconds"]].append(trade_elapsed)
         for a,h,minimum_count,window,value_position,reason_position,count_position,elapsed_position in age_plans:

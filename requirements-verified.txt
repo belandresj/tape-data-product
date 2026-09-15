@@ -3,6 +3,8 @@ boto3==1.42.88
 botocore==1.42.88
 duckdb==1.5.5
 matplotlib==3.10.8
+numba==0.62.1
+llvmlite==0.45.1
 numpy==2.3.4
 pandas==2.3.3
 pyarrow==22.0.0

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 
+import numpy as np
 import pyarrow.parquet as pq
 import pytest
 
@@ -10,7 +11,15 @@ from endpoint_ew_reference import calculate_reference
 from tape_data_product.contracts import DEFAULT_CONFIG
 from tape_data_product.contracts.config import EWView, FeatureConfig
 from tape_data_product.contracts.policy import NS, session_bounds
+from tape_data_product.contracts.reasons import Reason
 from tape_data_product.features.endpoint_ew import _calculate
+from tape_data_product.features._endpoint_ew_kernel import (
+    EndpointEWKernel,
+    PARTICIPATION,
+    RETURN_USABLE,
+    RMS,
+    run_ew_batch,
+)
 from tape_data_product.integrity import sha256_file
 from tape_data_product.replay.builder import build_base_partition
 from test_endpoint_pipeline import QSCHEMA, TSCHEMA, _records, _write, fixture
@@ -98,3 +107,38 @@ def test_columnar_calculator_matches_row_reference_across_batches_and_configs(tm
                             max_trade_reporting_age_ns=1_000_000_000)
     alternate_reference=_run(calculate_reference,base,tmp_path/"reference-alternate",alternate,7)
     _assert_reference(_run(_calculate,base,tmp_path/"optimized-alternate",alternate,25000),alternate_reference)
+    assert run_ew_batch.signatures, "production EW batch loop did not compile"
+
+
+def _kernel_inputs(midpoints, valid):
+    rows=len(midpoints);midpoints=np.asarray(midpoints,dtype=np.float64);valid=np.asarray(valid,dtype=np.bool_)
+    return dict(
+        halt=np.zeros(rows,dtype=np.int8),quote_status=np.ones(rows,dtype=np.int8),
+        trade_status=np.ones(rows,dtype=np.int8),bid=midpoints-.01,bid_valid=valid,
+        ask=midpoints+.01,ask_valid=valid,price_reason=np.zeros(rows,dtype=np.int64),
+        continuity=np.zeros(rows,dtype=np.int64),spread_numerator=np.full(rows,2.),
+        spread_exposure=np.ones(rows),activity_count=np.zeros(rows),activity_share=np.zeros(rows),
+        activity_dollar=np.zeros(rows),activity_exposure=np.ones(rows),
+        bid_size_numerator=np.full(rows,10.),bid_size_exposure=np.ones(rows),
+        ask_size_numerator=np.full(rows,20.),ask_size_exposure=np.ones(rows),
+    )
+
+
+def test_compiled_kernel_preserves_zero_and_long_decay_state():
+    zero=EndpointEWKernel((EWView(1,6),),.9,.8)
+    values,masks,supports,*_=zero.process(**_kernel_inputs([100.]*6,[True]*6))
+    assert values[-1,0,RMS]==0
+    assert masks[-1,0,RMS]==0
+    assert masks[-1,0,PARTICIPATION]==Reason.ZERO_RETURN_VARIATION
+    assert supports[-1,0,0]==1
+
+    rows=1110
+    midpoint=[100.]*5+[101.]+[101.]*(rows-6)
+    valid=[True]*6+[False]*(rows-6)
+    decayed=EndpointEWKernel((EWView(1,6),),.9,.8)
+    _,masks,supports,*_=decayed.process(**_kernel_inputs(midpoint,valid))
+    assert decayed.mantissas[0,RETURN_USABLE]!=0
+    assert supports[-1,0,0]==0
+    assert masks[-1,0,RMS]&Reason.LOW_COVERAGE
+    assert not masks[-1,0,RMS]&Reason.NO_SUPPORTED_DATA
+    assert not masks[-1,0,PARTICIPATION]&Reason.ZERO_RETURN_VARIATION

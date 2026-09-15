@@ -7,7 +7,7 @@ name = "tape-data-product"
 version = "0.1.0"
 description = "Direction-neutral equity tape measurements and causal interval retrieval"
 requires-python = ">=3.13,<3.14"
-dependencies = ["boto3>=1.34", "duckdb>=1.4,<2", "matplotlib>=3.8", "numpy>=1.26", "pandas>=2.1", "pyarrow>=14", "psutil>=5.9", "python-dotenv>=1.0", "certifi>=2024.2.2", "packaging>=23"]
+dependencies = ["boto3>=1.34", "duckdb>=1.4,<2", "matplotlib>=3.8", "numba>=0.62,<0.63", "numpy>=1.26", "pandas>=2.1", "pyarrow>=14", "psutil>=5.9", "python-dotenv>=1.0", "certifi>=2024.2.2", "packaging>=23"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
