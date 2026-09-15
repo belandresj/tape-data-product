@@ -12,7 +12,7 @@ Rendering consumes reconciled tables rather than selecting data. Captions state 
 
 ## Verification
 
-Source baseline: `52b5b3502c9567b120a92316f47a8642a718e11c`. Checkpoint A was still uncommitted, so no A code was copied or used. Synthetic cases independently cover ties split across batches, zeros, nulls, empty marginals, pair-specific missingness, exact bin edges and tails, zero-valid members, and a deliberate pooled/equal-member difference. Focused tests: 4 passed in 2.05 seconds wall time and 282,312 KiB maximum RSS, including pytest, DuckDB, Arrow, and Matplotlib. Full pre-review suite: 330 passed in 97.81 seconds.
+Source baseline: `52b5b3502c9567b120a92316f47a8642a718e11c`. Checkpoint A was still uncommitted, so no A code was copied or used. Synthetic cases independently cover ties split across batches, zeros, nulls, empty marginals, pair-specific missingness, exact bin edges and tails, zero-valid members, and a deliberate pooled/equal-member difference. Focused tests: 4 passed in 2.05 seconds wall time and 282,312 KiB maximum RSS, including pytest, DuckDB, Arrow, and Matplotlib. Full pre-review suite: 330 passed in 97.81 seconds. The post-review full suite also passed: 330 tests in 85.78 seconds. An isolated wheel installed outside the checkout passed its import, fixed-axis, and packaged-bin-resource smoke check; wheel SHA-256 is `547522948fe4f6f98b87db3062897281390a8492d0b7e661f2416fde84998219`.
 
 Two generated synthetic figures were visually inspected. An initial footer collision was found and fixed; the figures were re-rendered and checked for legible axes, labels, legends, denominators, zero mass, tails, and unclipped lineage.
 
