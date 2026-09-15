@@ -59,6 +59,26 @@ def _verify_source(pair, root):
             raise ContractError(f"{name} source identity changed")
 
 
+def _file_snapshot(path):
+    stat=Path(path).stat()
+    return (stat.st_dev,stat.st_ino,stat.st_size,stat.st_mtime_ns,stat.st_ctime_ns)
+
+
+def _source_snapshots(pair,root):
+    return {name:_file_snapshot(root/record["path"]) for name,record in pair["streams"].items()}
+
+
+def _verify_generated_base(root,record,rows):
+    """Check a freshly validated/written base without decoding it a second time."""
+    path=Path(root)/"base.parquet"
+    if not path.is_file() or path.stat().st_size!=record["bytes"]:raise ContractError("base output changed after hashing")
+    parquet=pq.ParquetFile(path)
+    if (record["rows"]!=rows or record["schema_sha256"]!=schema_hash(BASE_SCHEMA)
+            or parquet.metadata.num_rows!=rows or not parquet.schema_arrow.equals(BASE_SCHEMA,check_metadata=True)):
+        raise ContractError("base schema/row count mismatch")
+    return _file_snapshot(path)
+
+
 def _event_rows(path, columns, batch_size, stop_ns, *, seed_start=None):
     parquet = pq.ParquetFile(path)
     missing = set(columns) - set(parquet.schema_arrow.names)
@@ -247,12 +267,15 @@ def build_base_partition(source_pair, member_context, output, *, config=DEFAULT_
         try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error: raise ContractError("concurrent member writer") from error
         _verify_source(pair, root)
+        frozen_sources=_source_snapshots(pair,root)
         attempt = Path(tempfile.mkdtemp(prefix=f".{output.name}.attempt-", dir=output.parent))
         try:
             rows = _replay(pair, context, root, units.multiplier, attempt/"base.parquet", config, batch_size)
             write_atomic_json(attempt/"context.json", context)
             implementation = _implementation_identity()
-            records = [output_record(attempt/"base.parquet", rows=rows, schema_sha256=schema_hash(BASE_SCHEMA)),
+            base_record=output_record(attempt/"base.parquet", rows=rows, schema_sha256=schema_hash(BASE_SCHEMA))
+            base_snapshot=_verify_generated_base(attempt,base_record,rows)
+            records = [base_record,
                        output_record(attempt/"context.json", rows=rows, schema_sha256=digest(context))]
             manifest = {"manifest_version":"tape_member_manifest_v1", "member":{"symbol":pair["symbol"],"session_date":pair["session_date"]},
                 "coverage":context["coverage"], "inputs":{"source_pair_sha256":source_pair_sha,"context_sha256":member_context_sha,
@@ -260,11 +283,12 @@ def build_base_partition(source_pair, member_context, output, *, config=DEFAULT_
                 "base_compatibility":_base_compatibility(pair, config, implementation), "implementation_identity":implementation,
                 "contract_config":config.to_dict(), "outputs":records, "validation":{"integrity":"passed","consumption":"consumption_verified","independent_reconstruction":"pending"}, "complete":True}
             write_atomic_json(attempt/"manifest.json", manifest)
-            _verify_source(pair, root)
+            if any(_file_snapshot(root/pair["streams"][name]["path"])!=value for name,value in frozen_sources.items()):
+                raise ContractError("source identity changed during replay")
             _verify_evidence(evidence_identities)
             if sha256_file(source_pair)[0]!=source_pair_sha or sha256_file(member_context)[0]!=member_context_sha:
                 raise ContractError("source/context descriptor changed during replay")
-            verify_base_partition(attempt)
+            if _file_snapshot(attempt/"base.parquet")!=base_snapshot:raise ContractError("base output changed before commit")
             os.replace(attempt, output)
         except Exception:
             shutil.rmtree(attempt, ignore_errors=True); raise
@@ -388,7 +412,7 @@ def _integrate(state,a,b,bs,asks,ss,bis,ais,pd,sd,bid,aid,observed,gaps):
     return bs,asks,ss,bis,ais,pd,sd,bid,aid
 
 
-def verify_base_partition(root):
+def _verify_base_partition(root,*,validate_rows):
     root=Path(root); manifest=read_json(root/"manifest.json")
     required={"manifest_version","member","coverage","inputs","source_units","contract_identity","contract_config","base_compatibility","implementation_identity","outputs","validation","complete"}
     if set(manifest)!=required or manifest["manifest_version"]!="tape_member_manifest_v1" or manifest["complete"] is not True:
@@ -414,15 +438,20 @@ def verify_base_partition(root):
     pf=pq.ParquetFile(base)
     if not pf.schema_arrow.equals(BASE_SCHEMA,check_metadata=True) or pf.metadata.num_rows!=manifest["coverage"]["expected_rows"]:
         raise ContractError("base schema/row count mismatch")
-    previous=None;first=None;last=None
-    for batch in pf.iter_batches(batch_size=4096,use_threads=False):
-        previous=validate_batch(batch,"base",previous_key=previous)
-        if batch.num_rows:
-            batch_first=(batch.column(0)[0].as_py(),batch.column(1)[0].as_py(),batch.column(2)[0].as_py())
-            batch_last=(batch.column(0)[-1].as_py(),batch.column(1)[-1].as_py(),batch.column(2)[-1].as_py())
-            if first is None:first=batch_first
-            last=batch_last
-    expected_first=(manifest["member"]["session_date"],manifest["member"]["symbol"],manifest["coverage"]["session_start_ns"]+NS)
-    expected_last=(manifest["member"]["session_date"],manifest["member"]["symbol"],manifest["coverage"]["end_ns"])
-    if first!=expected_first or last!=expected_last:raise ContractError("base coverage boundary mismatch")
+    if validate_rows:
+        previous=None;first=None;last=None
+        for batch in pf.iter_batches(batch_size=4096,use_threads=False):
+            previous=validate_batch(batch,"base",previous_key=previous)
+            if batch.num_rows:
+                batch_first=(batch.column(0)[0].as_py(),batch.column(1)[0].as_py(),batch.column(2)[0].as_py())
+                batch_last=(batch.column(0)[-1].as_py(),batch.column(1)[-1].as_py(),batch.column(2)[-1].as_py())
+                if first is None:first=batch_first
+                last=batch_last
+        expected_first=(manifest["member"]["session_date"],manifest["member"]["symbol"],manifest["coverage"]["session_start_ns"]+NS)
+        expected_last=(manifest["member"]["session_date"],manifest["member"]["symbol"],manifest["coverage"]["end_ns"])
+        if first!=expected_first or last!=expected_last:raise ContractError("base coverage boundary mismatch")
     return manifest
+
+
+def verify_base_partition(root):
+    return _verify_base_partition(root,validate_rows=True)

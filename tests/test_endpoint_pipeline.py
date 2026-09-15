@@ -154,6 +154,24 @@ def test_control_evidence_is_rechecked_after_raw_replay(tmp_path,monkeypatch):
     with pytest.raises(ValueError,match="evidence changed during replay"):build_base_partition(pair,context,tmp_path/"base")
     assert not (tmp_path/"base/manifest.json").exists()
 
+def test_raw_source_is_rechecked_without_a_second_full_hash(tmp_path,monkeypatch):
+    pair,context=fixture(tmp_path,2);original=builder_module._replay
+    def mutate(*args,**kwargs):
+        result=original(*args,**kwargs)
+        with (tmp_path/"raw/quotes.parquet").open("ab") as handle:handle.write(b" ")
+        return result
+    monkeypatch.setattr(builder_module,"_replay",mutate)
+    with pytest.raises(ValueError,match="source identity changed during replay"):build_base_partition(pair,context,tmp_path/"base")
+    assert not (tmp_path/"base/manifest.json").exists()
+
+def test_fresh_builds_do_not_invoke_standalone_output_verifiers(tmp_path,monkeypatch):
+    pair,context=fixture(tmp_path,70)
+    monkeypatch.setattr(builder_module,"verify_base_partition",lambda *args,**kwargs: (_ for _ in ()).throw(AssertionError("standalone base verification")))
+    base=tmp_path/"base";build_base_partition(pair,context,base)
+    monkeypatch.setattr(endpoint_module,"verify_feature_partition",lambda *args,**kwargs: (_ for _ in ()).throw(AssertionError("standalone feature verification")))
+    features=tmp_path/"features";build_from_base(base,features)
+    assert (base/"manifest.json").exists() and (features/"manifest.json").exists()
+
 def test_reporting_cutoff_and_unknown_correction(tmp_path):
     pair,context=fixture(tmp_path,2);start,_=session_bounds("2026-09-02");raw=tmp_path/"raw"
     trades=[]

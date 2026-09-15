@@ -25,7 +25,7 @@ from ..contracts.registry import AGES, feature_registry
 from ..contracts.schemas import BASE_SCHEMA, feature_schema, support_schema, schema_hash
 from ..contracts.validation import validate_batch
 from ..integrity import read_json, sha256_file, write_atomic_json, output_record, verify_output
-from ..replay.builder import verify_base_partition
+from ..replay.builder import _verify_base_partition, verify_base_partition
 
 
 @dataclass
@@ -142,11 +142,35 @@ def _implementation_identity():
     return {"files":files,"sha256":digest(files)}
 
 
+def _file_snapshot(path):
+    stat=Path(path).stat()
+    return (stat.st_dev,stat.st_ino,stat.st_size,stat.st_mtime_ns,stat.st_ctime_ns)
+
+
+def _verify_generated_outputs(root,records,rows,config):
+    """Check freshly validated/written outputs without decoding them a second time."""
+    schemas={"features.parquet":feature_schema(config),"support.parquet":support_schema(config)}
+    by_name={record["path"]:record for record in records}
+    if set(by_name)!=set(schemas):raise ContractError("feature companions missing")
+    snapshots={}
+    for name,schema in schemas.items():
+        path=Path(root)/name;record=by_name[name]
+        if not path.is_file() or path.stat().st_size!=record["bytes"]:raise ContractError("feature output changed after hashing")
+        parquet=pq.ParquetFile(path)
+        if (record["rows"]!=rows or record["schema_sha256"]!=schema_hash(schema)
+                or parquet.metadata.num_rows!=rows or not parquet.schema_arrow.equals(schema,check_metadata=True)):
+            raise ContractError("feature companion schema/count mismatch")
+        snapshots[name]=_file_snapshot(path)
+    return snapshots
+
+
 def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size=4096):
     integer(batch_size,"batch size",1,25000)
     if not isinstance(config,FeatureConfig):raise ContractError("invalid feature config")
-    base_partition=Path(base_partition);base_manifest=verify_base_partition(base_partition)
-    frozen_base={name:sha256_file(base_partition/name)[0] for name in ("manifest.json","base.parquet","context.json")}
+    base_partition=Path(base_partition);base_manifest=_verify_base_partition(base_partition,validate_rows=False)
+    base_names=("manifest.json","base.parquet","context.json")
+    frozen_base={name:_file_snapshot(base_partition/name) for name in base_names}
+    base_sha=sha256_file(base_partition/"manifest.json")[0]
     expected_cap=base_manifest["base_compatibility"]["descriptor"]["max_trade_reporting_age_ns"]
     if expected_cap!=config.max_trade_reporting_age_ns:raise ContractError("base raw measurement policy is incompatible")
     output=Path(output)
@@ -168,16 +192,20 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
         attempt=Path(tempfile.mkdtemp(prefix=f".{output.name}.attempt-",dir=output.parent))
         try:
             rows,underflows=_calculate(base_partition/"base.parquet",base_partition/"context.json",attempt/"features.parquet",attempt/"support.parquet",config,batch_size)
-            if any(sha256_file(base_partition/name)[0]!=value for name,value in frozen_base.items()):
+            if any(_file_snapshot(base_partition/name)!=value for name,value in frozen_base.items()):
                 raise ContractError("base/context changed during feature calculation")
-            verify_base_partition(base_partition)
-            base_sha=sha256_file(base_partition/"manifest.json")[0];implementation=_implementation_identity()
+            implementation=_implementation_identity()
             records=[output_record(attempt/"features.parquet",rows=rows,schema_sha256=schema_hash(feature_schema(config))),output_record(attempt/"support.parquet",rows=rows,schema_sha256=schema_hash(support_schema(config)))]
+            output_snapshots=_verify_generated_outputs(attempt,records,rows,config)
             manifest={"manifest_version":"tape_member_manifest_v1","member":base_manifest["member"],"coverage":base_manifest["coverage"],
               "inputs":{"base_manifest_sha256":base_sha,"base_compatibility_sha256":base_manifest["base_compatibility"]["sha256"]},"source_units":base_manifest["source_units"],
               "contract_identity":contract_identity(config),"contract_config":config.to_dict(),"implementation_identity":implementation,"outputs":records,
               "validation":{"integrity":"passed","independent_reconstruction":"pending","diagnostic_underflow_count":underflows},"complete":True}
-            write_atomic_json(attempt/"manifest.json",manifest);verify_feature_partition(attempt,base_partition,config=config);os.replace(attempt,output)
+            write_atomic_json(attempt/"manifest.json",manifest)
+            if (any(_file_snapshot(base_partition/name)!=value for name,value in frozen_base.items())
+                    or any(_file_snapshot(attempt/name)!=value for name,value in output_snapshots.items())):
+                raise ContractError("build input/output changed before feature commit")
+            os.replace(attempt,output)
         except Exception:shutil.rmtree(attempt,ignore_errors=True);raise
     return BuildResult(digest(manifest["member"]),manifest["contract_identity"],output/"manifest.json",rows)
 
@@ -192,8 +220,16 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
     windows={(a,h):AgeWindow(h) for a in AGES for h in config.age_windows_seconds};ring=deque(maxlen=6);quote_elapsed=trade_elapsed=0;underflows=0
     fs,ss=feature_schema(config),support_schema(config);fw=pq.ParquetWriter(feature_path,fs,compression="zstd",compression_level=3);sw=pq.ParquetWriter(support_path,ss,compression="zstd",compression_level=3)
     fbuf=[];sbuf=[]
+    previous=None;first=None;last=None;processed_rows=0
     try:
       for batch in pq.ParquetFile(base_path).iter_batches(batch_size=batch_size,use_threads=False):
+       previous=validate_batch(batch,"base",previous_key=previous)
+       if batch.num_rows:
+        batch_first=(batch.column(0)[0].as_py(),batch.column(1)[0].as_py(),batch.column(2)[0].as_py())
+        batch_last=(batch.column(0)[-1].as_py(),batch.column(1)[-1].as_py(),batch.column(2)[-1].as_py())
+        if first is None:first=batch_first
+        last=batch_last
+       processed_rows+=batch.num_rows
        for row in batch.to_pylist():
         halt=row["halt_active"];qstatus=SourceStatus(row["quote_source_status"]);tstatus=SourceStatus(row["trade_source_status"])
         if halt:
@@ -286,7 +322,13 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
       if fbuf:
         fb=pa.RecordBatch.from_pylist(fbuf,schema=fs);sb=pa.RecordBatch.from_pylist(sbuf,schema=ss);validate_batch(fb,"features",config=config);validate_batch(sb,"support",config=config);fw.write_batch(fb);sw.write_batch(sb)
     finally:fw.close();sw.close()
-    return pq.ParquetFile(base_path).metadata.num_rows,underflows
+    expected_rows=context["coverage"]["expected_rows"]
+    member=context["member"].split("/",1)
+    expected_first=(member[0],member[1],context["coverage"]["session_start_ns"]+NS)
+    expected_last=(member[0],member[1],context["coverage"]["end_ns"])
+    if processed_rows!=expected_rows or first!=expected_first or last!=expected_last:
+        raise ContractError("base coverage boundary mismatch during feature calculation")
+    return processed_rows,underflows
 
 
 def verify_feature_partition(root,base_partition,*,config=DEFAULT_CONFIG):
