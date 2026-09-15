@@ -1,6 +1,6 @@
 # Phase 4 — New-feature retrieval and research workflow
 
-Status: implementation specification, 2026-09-15. The owner selected sequential execution: implement and review A, then B, then C, then D. This document specifies all four checkpoints so they share one contract; it does not claim any checkpoint is implemented. Generate each execution prompt when its predecessor is accepted. Do not start four implementation agents concurrently.
+Status: implementation specification, updated 2026-09-15. A owns the shared reader; B and C may develop independent reducers and synthetic tests concurrently in separate worktrees. Their real-data integration depends on A's reviewed committed interface and accepted pilot. D follows working A–C outputs. This document does not itself certify checkpoint completion. The delivery-priority clarification below supersedes earlier sequential-only scheduling and distinguishes an initial usable query from full Phase 4 acceptance.
 
 ## 1. Outcome and governing contracts
 
@@ -26,7 +26,21 @@ These paths are operator inputs, never package defaults or runtime dependencies.
 
 The accepted 5,208 members differ from the 7,085 paired T/Q migration population and the legacy report population. Preserve the accepted denominator; do not silently substitute either earlier population. Reconciliation of the other members belongs in the final population narrative, not a fabricated zero-match count.
 
-## 2. Sequential implementation checkpoints
+## 2. Implementation checkpoints and dependency order
+
+### Delivery-priority clarification — 2026-09-15
+
+The immediate milestone is a reproducible observation query on the existing accepted universe, with correct feature masks, session selection, eligibility/match counts and symbol/date contributions. The 24-member pilot is a development test population, not the eventual search universe or a feature-threshold selection. Do not make all of C/D or generalized support for future datasets a prerequisite to that milestone.
+
+**Close A's current work:** resolve the identified hash-to-open replacement gap and per-member prefix/full substitution gap, correct the direct-read checker to the specified fixed intervals, and address any other demonstrated material correctness finding. Reuse successful evidence for unchanged behavior. Rerun affected checks and the bounded installed-wheel verification; repeat the full pilot only if a code change or finding could invalidate its earlier evidence. Then document the actual interfaces, commit, and hand off to B/C. Do not add new capabilities, refactoring or optimization to A merely because they could benefit a future release.
+
+Existing implemented relocation, discovery-mode and other generalized capabilities need not be removed or redesigned. Any unfinished generalized capability may be explicitly deferred from the initial reader handoff if the fixed accepted release works correctly and unsupported requests fail clearly. Record such deferrals against the original acceptance requirements; call the milestone a reviewed reader handoff rather than full A acceptance if requirements remain unmet. No silent weakening of verified-content claims, member/coverage identity, timestamp/mask semantics, bounded resource use or source lineage is allowed.
+
+**B's first milestone:** integrate a bounded installed observation query and export on A's accepted pilot, using explicit predicates and full selected/eligible/matching accounting. Feature-only predicates should consume the feature companion and its masks without unnecessarily decoding base/support values. Add the required continuity metadata when implementing strict runs. B's complete acceptance still includes strict runs and the rest of §5, but those need not delay delivery of a separately verified observation-query milestone.
+
+The query must accept an explicit validated member reference; do not hard-code the pilot population into its execution logic. A full-universe reference and measured scan proposal can follow without creating another feature dataset. Full-population execution remains subject to the existing bounded-measurement and confirmation requirements. This clarification authorizes no new full-corpus run.
+
+Independent B/C work must not modify A's worktree or copy its uncommitted code. Integrate reviewed commits through Git. Serialize data-intensive VM acceptance runs and account for aggregate resources. C's unconditional distributions do not depend on B; both use A's shared semantics. Completion records distinguish independently tested core logic, integrated pilot results, and full checkpoint acceptance.
 
 | Checkpoint | Owns | Completion boundary |
 |---|---|---|
@@ -35,7 +49,7 @@ The accepted 5,208 members differ from the 7,085 paired T/Q migration population
 | C | Marginal ECDFs, joint distributions, weighting, figures | Independent numerical/denominator checks and rendered pilot figures pass using A's reader |
 | D | End-to-end integration, example inspection, report rehearsal and Phase 5 preparation | Installed synthetic raw-to-report and real pilot workflows reproduce; measured full-run proposal ready |
 
-One implementation task owns each checkpoint. Review the specification and checkpoint evidence independently as required by the master plan; a bounded read-only reviewer is compatible with sequential implementation and must not launch data jobs or write competing code. Record findings and resolutions. Acceptance records identify source revision, wheel, tests, measurements, limitations and the next checkpoint's interface. Do not produce a second standalone spec for each checkpoint.
+One implementation task owns each checkpoint. Review the specification and checkpoint evidence independently as required by the master plan; a bounded read-only reviewer must not launch data jobs or write competing code. Record findings and resolutions. Acceptance records identify source revision, wheel, tests, measurements, limitations and the next checkpoint's interface. Do not produce a second standalone spec for each checkpoint.
 
 ## 3. Shared data and selection contract
 
