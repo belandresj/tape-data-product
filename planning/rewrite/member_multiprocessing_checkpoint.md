@@ -65,6 +65,15 @@ enclosing cgroup peaked at 446.4 MiB with no swap.
 
 ## Synthetic scaling measurement
 
+**Correction, 2026-09-15:** these four runs accidentally inherited
+`batch_size=7` from the correctness fixture. The reported 6,717 aggregate
+member-seconds/s and any 16.9-hour corpus extrapolation derived from it are not
+evidence for the intended production configuration. A later two-member
+scheduler diagnostic measured 23.04 seconds at batch size 7 and 4.52 seconds at
+batch size 4,096; that isolates a configuration problem but is not a corpus
+ETA. Production measurements and plans must set and report batch size 4,096
+explicitly.
+
 The deterministic workload contains 16 independent members:
 
 - eight event-heavy members: 3,600 output seconds and 50,000 quote events each;
