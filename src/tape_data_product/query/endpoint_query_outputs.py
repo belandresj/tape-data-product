@@ -262,8 +262,13 @@ class EndpointQueryExport:
             raise ValueError("summary query identity mismatch")
         observations = self.observations.close()
         runs = self.runs.close()
+        if observations["rows"] != summary.get("totals", {}).get("matching"):
+            raise ValueError("matching-observation output count mismatch")
         if runs["rows"] != summary.get("strict_run_count"):
             raise ValueError("strict-run output count mismatch")
+        database_members = self.accounting.finish()
+        if database_members != summary.get("members"):
+            raise ValueError("SQLite and summary member accounting mismatch")
         members_path = self.root / "member_accounting.parquet"
         contributions_path = self.root / "symbol_date_contributions.parquet"
         pq.write_table(

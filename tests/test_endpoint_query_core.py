@@ -370,6 +370,46 @@ def test_export_rejects_mismatched_identity_and_projection(tmp_path):
         )
 
 
+def test_export_reconciles_observation_and_sqlite_accounting(tmp_path):
+    selected = predicates()
+    descriptor = query_descriptor(
+        reference_identity="ref",
+        selection={"version": "synthetic-selection-v1"},
+        predicates=selected,
+        display_fields=[],
+        field_descriptors=DESCRIPTORS,
+        contract_identity="contract",
+        implementation_identity="implementation",
+        observation_schema_sha256=schema_hash(OBSERVATION_SCHEMA),
+    )
+    identity = query_identity(descriptor)
+    missing_observation = EndpointQueryExport(
+        tmp_path / "missing-observation", observation_schema=OBSERVATION_SCHEMA,
+        descriptor=descriptor, identity=identity,
+    )
+    reducer = EndpointQueryReducer(
+        selected, identity, accounting_store=missing_observation.accounting,
+        run_sink=missing_observation.add_run,
+    )
+    reducer.consume(row(0, 3))
+    summary = reducer.finish(RunBoundary("member_boundary", False))
+    with pytest.raises(ValueError, match="matching-observation"):
+        missing_observation.finish(summary)
+
+    wrong_accounting = EndpointQueryExport(
+        tmp_path / "wrong-accounting", observation_schema=OBSERVATION_SCHEMA,
+        descriptor=descriptor, identity=identity,
+    )
+    observations = []
+    memory_reducer = EndpointQueryReducer(
+        selected, identity, observation_sink=observations.append,
+    )
+    memory_reducer.consume(row(0, 1))
+    memory_summary = memory_reducer.finish(RunBoundary("member_boundary", False))
+    with pytest.raises(ValueError, match="SQLite"):
+        wrong_accounting.finish(memory_summary)
+
+
 def test_nonempty_export_values_runs_and_hashes_reproduce(tmp_path):
     selected = predicates()
     descriptor = query_descriptor(
