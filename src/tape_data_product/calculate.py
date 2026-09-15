@@ -1,4 +1,4 @@
-"""Immutable one-worker calculation plans and fail-closed manual execution."""
+"""Immutable calculation plans and bounded fail-closed member execution."""
 from __future__ import annotations
 import os
 import re
@@ -17,9 +17,13 @@ from .integrity import read_json, sha256_file, write_atomic_json
 def create_plan(inventory_path,admissions_path,config_path,limits_path,output):
     inventory=read_json(inventory_path);admissions=read_json(admissions_path);limits=read_json(limits_path)
     config=FeatureConfig.from_dict(read_json(config_path));output=Path(output)
+    workers=limits.get("workers")
+    if type(workers) is not int or not 1<=workers<=8:raise ContractError("workers must be an integer from 1 through 8")
+    members=inventory.get("members",[]);keys=[f"{member['session_date']}/{member['symbol']}" for member in members]
+    if len(keys)!=len(set(keys)):raise ContractError("duplicate calculation member")
     if output.exists():raise FileExistsError(output)
     output.mkdir(parents=True)
-    members=inventory.get("members",[]);findings={x["member"]:x for x in admissions.get("findings",[])}
+    findings={x["member"]:x for x in admissions.get("findings",[])}
     unresolved=[f"{m['session_date']}/{m['symbol']}" for m in members if findings.get(f"{m['session_date']}/{m['symbol']}",{}).get("state")!="metadata_admitted"]
     index_path=output/"admitted-members.sqlite";connection=sqlite3.connect(index_path)
     connection.execute("CREATE TABLE members (member TEXT PRIMARY KEY,source_pair_path TEXT NOT NULL,source_pair_sha256 TEXT NOT NULL,context_path TEXT NOT NULL,context_sha256 TEXT NOT NULL)")
@@ -296,8 +300,10 @@ def _preflight(plan):
                     or release["feature_implementation_identity"]!=feature_identity()["sha256"]):
                 blockers.append("release_identity_mismatch")
         except (FileNotFoundError,PermissionError):blockers.append("release_identity_mismatch")
-    limits=plan.get("limits",{})
-    if limits.get("workers")!=1:blockers.append("worker_limit_must_be_one")
+    limits=plan.get("limits",{});workers=limits.get("workers")
+    if type(workers) is not int or not 1<=workers<=8:blockers.append("worker_limit_must_be_integer_1_through_8")
+    keys=[f"{member['session_date']}/{member['symbol']}" for member in plan["members"]]
+    if len(keys)!=len(set(keys)):blockers.append("duplicate_calculation_member")
     for key in ("base_root","feature_root","ledger_path"):
         if not plan.get(key):blockers.append(f"missing_{key}")
     if plan.get("base_root") and plan.get("feature_root"):
@@ -316,6 +322,7 @@ def _preflight(plan):
 
 def _run_plan_locked(plan_path,expected):
     sha=sha256_file(plan_path)[0]
+    run_started=time.monotonic()
     if sha!=expected:raise ContractError("plan identity mismatch")
     plan=read_json(plan_path)
     if plan.get("version")!="tape_calculation_plan_v1":raise ContractError("unknown plan version")
@@ -323,26 +330,17 @@ def _run_plan_locked(plan_path,expected):
     if contract_identity(FeatureConfig.from_dict(plan["config"]))!=plan["contract_identity"]:raise ContractError("plan config identity mismatch")
     blockers,descriptors=_preflight(plan)
     if blockers:raise ContractError("calculation preflight blocked: "+",".join(blockers))
-    from .replay.builder import build_base_partition
-    from .features.endpoint_ew import build_from_base
-    config=FeatureConfig.from_dict(plan["config"]);ledger_path=Path(plan["ledger_path"]);ledger_path.parent.mkdir(parents=True,exist_ok=True)
+    ledger_path=Path(plan["ledger_path"]);ledger_path.parent.mkdir(parents=True,exist_ok=True)
     connection=sqlite3.connect(ledger_path)
     connection.execute("CREATE TABLE IF NOT EXISTS members (member TEXT PRIMARY KEY,status TEXT NOT NULL,base_manifest TEXT,feature_manifest TEXT,error TEXT,updated_ns INTEGER NOT NULL)")
-    completed=0
+    connection.execute("CREATE TABLE IF NOT EXISTS run_attempts (attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,plan_sha256 TEXT NOT NULL,runner_identity TEXT NOT NULL,start_method TEXT NOT NULL,workers INTEGER NOT NULL,scheduling TEXT NOT NULL,started_ns INTEGER NOT NULL)")
+    connection.execute("UPDATE members SET status='interrupted',error='previous parent exited before reconciliation',updated_ns=? WHERE status='running'",(time.time_ns(),));connection.commit()
     try:
-        for member in plan["members"]:
-            key=f'{member["session_date"]}/{member["symbol"]}';pair_path,context_path=descriptors[key]
-            base=Path(plan["base_root"])/f'session_date={member["session_date"]}'/f'symbol={member["symbol"]}'
-            features=Path(plan["feature_root"])/f'session_date={member["session_date"]}'/f'symbol={member["symbol"]}'
-            try:
-                base_result=build_base_partition(pair_path,context_path,base,config=config,batch_size=plan["limits"].get("batch_size",4096))
-                feature_result=build_from_base(base,features,config=config,batch_size=plan["limits"].get("batch_size",4096))
-                connection.execute("INSERT OR REPLACE INTO members VALUES (?,?,?,?,?,?)",(key,"complete",str(base_result.manifest_path),str(feature_result.manifest_path),None,time.time_ns()));connection.commit();completed+=1
-            except Exception as error:
-                connection.execute("INSERT OR REPLACE INTO members VALUES (?,?,?,?,?,?)",(key,"failed",None,None,str(error)[:4096],time.time_ns()));connection.commit()
-                raise
-    finally:connection.close()
-    return {"status":"complete","members":completed,"ledger":str(ledger_path),"plan_sha256":sha}
+        from .calculate_runtime import run_members
+        result=run_members(plan,descriptors,sha,connection,run_started)
+    finally:
+        connection.close()
+    return {**result,"ledger":str(ledger_path),"plan_sha256":sha}
 
 
 def run_plan(plan_path,expected):

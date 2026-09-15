@@ -3,7 +3,12 @@ import hashlib,json
 import fcntl
 from dataclasses import replace
 import math
+import sqlite3
 import sys
+import os
+import signal
+import subprocess
+import time
 from pathlib import Path
 
 import pyarrow as pa
@@ -34,7 +39,7 @@ def _write(path,schema,rows):pq.write_table(pa.Table.from_pylist(rows,schema=sch
 def _records(path):
     return {"path":path.name,"sha256":sha256_file(path)[0],"bytes":path.stat().st_size,"rows":pq.ParquetFile(path).metadata.num_rows,"schema_sha256":digest({"schema":str(pq.ParquetFile(path).schema_arrow)}),"clock":"sip_timestamp_utc_ns","terminal_complete":True}
 
-def fixture(tmp_path,seconds=310):
+def fixture(tmp_path,seconds=310,symbol="SYN"):
     day="2026-09-02";start,_=session_bounds(day);raw=tmp_path/"raw";raw.mkdir();evidence=tmp_path/"evidence";evidence.mkdir()
     quotes=[{"sip_timestamp":start,"sequence_number":1,"bid_price":99.,"ask_price":101.,"bid_size":10.,"ask_size":20.,"conditions":[],"indicators":[]},{"sip_timestamp":start+NS//4,"sequence_number":2,"bid_price":100.,"ask_price":102.,"bid_size":30.,"ask_size":40.,"conditions":[],"indicators":[]}]
     trades=[{"sip_timestamp":start+100_000_000,"sequence_number":1,"participant_timestamp":start+100_000_000,"price":100.,"decimal_size":"0.1","size":.1,"conditions":[],"correction":0},{"sip_timestamp":start+200_000_000,"sequence_number":2,"participant_timestamp":start+200_000_000,"price":102.,"decimal_size":"0.2","size":.2,"conditions":[],"correction":0}]
@@ -42,15 +47,15 @@ def fixture(tmp_path,seconds=310):
     interval=[[start,start+seconds*NS]]
     streams={}
     for name,path in (("quotes",raw/"quotes.parquet"),("trades",raw/"trades.parquet")):
-        provenance=evidence/f"{name}-provenance.json";provenance.write_text(json.dumps({"member":f"{day}/SYN","source":"synthetic"}))
-        coverage=evidence/f"{name}-coverage.json";coverage.write_text(json.dumps({"version":"source_coverage_v1","member":f"{day}/SYN","stream":name,"intervals":interval,"terminal_complete":True}))
+        provenance=evidence/f"{name}-provenance.json";provenance.write_text(json.dumps({"member":f"{day}/{symbol}","source":"synthetic"}))
+        coverage=evidence/f"{name}-coverage.json";coverage.write_text(json.dumps({"version":"source_coverage_v1","member":f"{day}/{symbol}","stream":name,"intervals":interval,"terminal_complete":True}))
         streams[name]={**_records(path),"provenance_path":provenance.name,"provenance_sha256":sha256_file(provenance)[0],"coverage_evidence_path":coverage.name,"coverage_evidence_sha256":sha256_file(coverage)[0]}
-    quote_units=evidence/"quote-units.json";quote_units.write_text(json.dumps({"version":"source_units_v1","member":f"{day}/SYN","stream":"quotes","unit":"shares","multiplier":1,"object_sha256":streams["quotes"]["sha256"]}))
-    trade_units=evidence/"trade-units.json";trade_units.write_text(json.dumps({"version":"source_units_v1","member":f"{day}/SYN","stream":"trades","quantity_precedence":"decimal_size_then_size","scale":9,"object_sha256":streams["trades"]["sha256"]}))
-    pair={"version":"tape_source_pair_v1","symbol":"SYN","session_date":day,"currency":"USD","adapter":"massive_canonical_tq_v1","root":str(raw),"evidence_root":str(evidence),"streams":streams,"source_units":{"quote_size_unit":"shares","quote_size_evidence_sha256":sha256_file(quote_units)[0],"quote_size_evidence_path":quote_units.name,"trade_quantity_evidence_sha256":sha256_file(trade_units)[0],"trade_quantity_evidence_path":trade_units.name,"round_lot_shares":None}}
-    halt=evidence/"halts.json";halt.write_text(json.dumps({"member":f"{day}/SYN","status":"verified_empty","halts":[]}))
-    continuity=evidence/"continuity.json";continuity.write_text(json.dumps({"version":"source_continuity_v1","member":f"{day}/SYN","gaps":{"quotes":[],"trades":[]},"instantaneous_breaks":{"quotes":[],"trades":[]}}))
-    context={"version":"tape_member_context_v1","member":f"{day}/SYN","coverage":{"kind":"prefix","session_start_ns":start,"end_ns":start+seconds*NS,"expected_rows":seconds},"observation_intervals":{"quotes":interval,"trades":interval},"gaps":{"quotes":[],"trades":[]},"instantaneous_breaks":{"quotes":[],"trades":[]},"halts":[],"halt_evidence":{"status":"verified_empty","path":halt.name,"sha256":sha256_file(halt)[0]},"continuity_evidence":{"path":continuity.name,"sha256":sha256_file(continuity)[0]},"seed":{"basis":"verified_empty"},"selection":{"basis":"synthetic"},"discovery":{"eligibility_basis":"nominal"}}
+    quote_units=evidence/"quote-units.json";quote_units.write_text(json.dumps({"version":"source_units_v1","member":f"{day}/{symbol}","stream":"quotes","unit":"shares","multiplier":1,"object_sha256":streams["quotes"]["sha256"]}))
+    trade_units=evidence/"trade-units.json";trade_units.write_text(json.dumps({"version":"source_units_v1","member":f"{day}/{symbol}","stream":"trades","quantity_precedence":"decimal_size_then_size","scale":9,"object_sha256":streams["trades"]["sha256"]}))
+    pair={"version":"tape_source_pair_v1","symbol":symbol,"session_date":day,"currency":"USD","adapter":"massive_canonical_tq_v1","root":str(raw),"evidence_root":str(evidence),"streams":streams,"source_units":{"quote_size_unit":"shares","quote_size_evidence_sha256":sha256_file(quote_units)[0],"quote_size_evidence_path":quote_units.name,"trade_quantity_evidence_sha256":sha256_file(trade_units)[0],"trade_quantity_evidence_path":trade_units.name,"round_lot_shares":None}}
+    halt=evidence/"halts.json";halt.write_text(json.dumps({"member":f"{day}/{symbol}","status":"verified_empty","halts":[]}))
+    continuity=evidence/"continuity.json";continuity.write_text(json.dumps({"version":"source_continuity_v1","member":f"{day}/{symbol}","gaps":{"quotes":[],"trades":[]},"instantaneous_breaks":{"quotes":[],"trades":[]}}))
+    context={"version":"tape_member_context_v1","member":f"{day}/{symbol}","coverage":{"kind":"prefix","session_start_ns":start,"end_ns":start+seconds*NS,"expected_rows":seconds},"observation_intervals":{"quotes":interval,"trades":interval},"gaps":{"quotes":[],"trades":[]},"instantaneous_breaks":{"quotes":[],"trades":[]},"halts":[],"halt_evidence":{"status":"verified_empty","path":halt.name,"sha256":sha256_file(halt)[0]},"continuity_evidence":{"path":continuity.name,"sha256":sha256_file(continuity)[0]},"seed":{"basis":"verified_empty"},"selection":{"basis":"synthetic"},"discovery":{"eligibility_basis":"nominal"}}
     for name,value in (("pair.json",pair),("context.json",context)):(tmp_path/name).write_text(json.dumps(value))
     return tmp_path/"pair.json",tmp_path/"context.json"
 
@@ -365,4 +370,411 @@ def test_feature_build_rechecks_frozen_base_companions(tmp_path,monkeypatch):
         with (base/"context.json").open("ab") as handle:handle.write(b" ")
         return result
     monkeypatch.setattr(endpoint_module,"_calculate",mutate)
+
     with pytest.raises(ValueError,match="changed during feature calculation"):build_from_base(base,tmp_path/"features")
+
+def _parallel_fixture(root, symbol, seconds, quote_events=2):
+    root.mkdir()
+    pair, context = fixture(root, seconds=seconds, symbol=symbol)
+    raw = root / "raw"
+    member_raw = raw / symbol
+    member_raw.mkdir()
+    start, _ = session_bounds("2026-09-02")
+    if abs(quote_events) > 2:
+        event_count = abs(quote_events)
+        rows = [
+            {
+                "sip_timestamp": start + i * max(1, seconds * NS // event_count),
+                "sequence_number": i + 1,
+                "bid_price": 99.0 + i / 10000,
+                "ask_price": 101.0 + i / 10000,
+                "bid_size": 10.0 + i % 7,
+                "ask_size": 20.0 + i % 11,
+                "conditions": [],
+                "indicators": [],
+            }
+            for i in range(event_count)
+        ]
+        if quote_events < 0:
+            rows[1]["sip_timestamp"] = rows[0]["sip_timestamp"]
+            rows[1]["sequence_number"] = rows[0]["sequence_number"]
+        pq.write_table(pa.Table.from_pylist(rows, schema=QSCHEMA),
+                       raw / "quotes.parquet", row_group_size=4096)
+    pair_body = json.loads(pair.read_text())
+    for stream in ("quotes", "trades"):
+        source = raw / f"{stream}.parquet"
+        target = member_raw / source.name
+        source.rename(target)
+        pair_body["streams"][stream].update(_records(target))
+        pair_body["streams"][stream]["path"] = f"{symbol}/{target.name}"
+    quote_units = root / "evidence" / "quote-units.json"
+    quote_body = json.loads(quote_units.read_text())
+    quote_body["object_sha256"] = pair_body["streams"]["quotes"]["sha256"]
+    quote_units.write_text(json.dumps(quote_body))
+    pair_body["source_units"]["quote_size_evidence_sha256"] = sha256_file(quote_units)[0]
+    pair.write_text(json.dumps(pair_body))
+    return pair, context
+
+
+def _parallel_plan(tmp_path, specs, workers, label):
+    sources = {}
+    records = []
+    members = []
+    admissions_findings = []
+    for symbol, seconds, quote_events in specs:
+        pair, context = _parallel_fixture(
+            tmp_path / f"source-{label}-{symbol}", symbol, seconds, quote_events)
+        sources[symbol] = (pair, context)
+        pair_body = json.loads(pair.read_text())
+        member = {"session_date": "2026-09-02", "symbol": symbol}
+        members.append(member)
+        admissions_findings.append({
+            "member": f"2026-09-02/{symbol}",
+            "state": "metadata_admitted",
+            "source_pair_path": str(pair),
+            "member_context_path": str(context),
+        })
+        for stream in ("quotes", "trades"):
+            declared = pair_body["streams"][stream]
+            records.append({
+                "version": "raw_migration_object_v1",
+                "kind": "canonical_tq",
+                "session_date": "2026-09-02",
+                "symbol": symbol,
+                "stream": stream,
+                "key": declared["path"],
+                "relative_path": declared["path"],
+                "sha256": declared["sha256"],
+                "size_bytes": declared["bytes"],
+                "rows": declared["rows"],
+                "verify_mode": "tq_parquet_sip_order",
+                "reuse_path": None,
+            })
+    transfer_manifest = tmp_path / f"{label}-transfer.jsonl"
+    transfer_manifest.write_text("".join(json.dumps(x) + "\n" for x in records))
+    transfer_sha = sha256_file(transfer_manifest)[0]
+    transfer_bytes = sum(x["size_bytes"] for x in records)
+    completion = tmp_path / f"{label}-transfer-complete.json"
+    completion.write_text(json.dumps({
+        "version": "raw_migration_completion_v1",
+        "status": "complete",
+        "manifest_sha256": transfer_sha,
+        "expected_objects": len(records),
+        "expected_bytes": transfer_bytes,
+        "states": {
+            "verified": {"objects": len(records), "bytes": transfer_bytes},
+            "reused": {"objects": 0, "bytes": 0},
+        },
+        "reserved_download_bytes": transfer_bytes,
+        "delivered_payload_bytes": transfer_bytes,
+        "attempts": len(records),
+        "elapsed_seconds": 1.0,
+        "scope": "transport identity only; production source admission is separate",
+    }))
+    wheel = tmp_path / "candidate.whl"
+    if not wheel.exists():
+        wheel.write_bytes(b"synthetic-wheel-identity")
+    release = {
+        "source_revision": "a" * 40,
+        "wheel_path": str(wheel),
+        "wheel_sha256": sha256_file(wheel)[0],
+        "executable": sys.executable,
+        "contract_identity": contract_identity(),
+        "base_implementation_identity": base_implementation_identity()["sha256"],
+        "feature_implementation_identity": feature_implementation_identity()["sha256"],
+    }
+    measurement_guards = {
+        "workers": 1, "threads": 1, "batch_size": 4096,
+        "cpu_quota_percent": 200, "tasks_max": 64,
+        "memory_max_bytes": 1610612736, "memory_swap_max_bytes": 0,
+        "process_tree_rss_stop_bytes": 1073741824,
+        "runtime_max_seconds": 600, "read_limit_bytes": 1073741824,
+        "output_scratch_limit_bytes": 2147483648,
+        "max_decoded_raw_rows": 2000000,
+    }
+    phase = {
+        "decoded_raw_rows": 100, "read_bytes": 1000,
+        "peak_rss_bytes": 1000000, "wall_seconds": 1.0,
+        "disk_bytes": {"output": 2000, "scratch_peak": 3000},
+        "guards": measurement_guards,
+    }
+    artifacts = [{
+        "member": member, "source_pair_sha256": "1" * 64,
+        "context_sha256": "2" * 64, "base_manifest_sha256": "3" * 64,
+        "feature_manifest_sha256": "4" * 64, "rows": 720,
+    } for member in ("2026-09-02/KDP", "2026-09-02/NVDA")]
+    measurement_core = {
+        "version": "tape_representative_measurement_v1",
+        "status": "accepted", "kind": "representative_measurement",
+        "source_revision": release["source_revision"],
+        "wheel_sha256": release["wheel_sha256"],
+        "config_sha256": digest(DEFAULT_CONFIG.to_dict()),
+        "sample": {
+            "members": ["2026-09-02/KDP", "2026-09-02/NVDA"],
+            "coverage_seconds_per_member": 720,
+        },
+        "rows": {"base": 1440, "features": 1440, "support": 1440},
+        "artifacts": artifacts,
+        "phases": {"build": phase, "verification": phase},
+        "independent_reconstruction": {
+            "base_all_fields": "passed",
+            "features_explicit_histories": "passed",
+            "support_all_fields": "passed",
+        },
+    }
+    measurement_id = digest(measurement_core)
+    decision_body = {
+        "version": "tape_representativeness_decision_v1",
+        "status": "reviewed_accepted",
+        "population_sha256": digest(members),
+        "expected_members": len(members),
+        "source_revision": release["source_revision"],
+        "wheel_sha256": release["wheel_sha256"],
+        "config_sha256": digest(DEFAULT_CONFIG.to_dict()),
+        "measurement_ids": [measurement_id],
+    }
+    decision = tmp_path / f"{label}-decision.json"
+    decision.write_text(json.dumps(decision_body))
+    decision_ref = {"path": str(decision), "sha256": sha256_file(decision)[0]}
+    measurement_body = {
+        **measurement_core,
+        "measurement_id": measurement_id,
+        "readiness_decision_sha256": decision_ref["sha256"],
+    }
+    measurement = tmp_path / f"{label}-measurement.json"
+    measurement.write_text(json.dumps(measurement_body))
+    transfer_kind_summary = {
+        "canonical_tq": {"objects": len(records), "bytes": transfer_bytes},
+        "discovery_reference": {"objects": 0, "bytes": 0},
+        "halt_support": {"objects": 0, "bytes": 0},
+    }
+    inventory = {
+        "members": members, "transfer_complete": True,
+        "transfer_manifest_path": str(transfer_manifest),
+        "transfer_manifest_sha256": transfer_sha,
+        "transfer_expected_objects": len(records),
+        "transfer_expected_bytes": transfer_bytes,
+        "transfer_kind_summary": transfer_kind_summary,
+        "transfer_completion": {
+            "path": str(completion), "sha256": sha256_file(completion)[0]},
+        "readiness_decision": decision_ref,
+        "measurement_references": [{
+            "path": str(measurement), "sha256": sha256_file(measurement)[0]}],
+        "release": release,
+        "base_root": str(tmp_path / f"{label}-base"),
+        "feature_root": str(tmp_path / f"{label}-features"),
+        "ledger_path": str(tmp_path / f"{label}-ledger.sqlite"),
+    }
+    limits = {
+        "workers": workers, "batch_size": 7, "disk_reserve_bytes": 0,
+        "scratch_cap_bytes": 1024 ** 3,
+        "process_tree_rss_stop_bytes": 2 * 1024 ** 3,
+        "runtime_max_seconds": 120,
+    }
+    paths = {}
+    for name, value in (
+        ("inventory", inventory),
+        ("admissions", {"findings": admissions_findings}),
+        ("config", DEFAULT_CONFIG.to_dict()),
+        ("limits", limits),
+    ):
+        path = tmp_path / f"{label}-{name}.json"
+        path.write_text(json.dumps(value))
+        paths[name] = path
+    plan = create_plan(
+        paths["inventory"], paths["admissions"], paths["config"],
+        paths["limits"], tmp_path / f"{label}-plan")
+    return plan, inventory, sources
+
+
+def _decoded_member(root, symbol, name):
+    path = Path(root) / "session_date=2026-09-02" / f"symbol={symbol}" / name
+    return pq.ParquetFile(path).read().to_pylist()
+
+
+
+def test_parallel_runner_matches_sequential_and_processes_mixed_members_once(tmp_path):
+    specs = [("S00", 70, 3), ("S01", 90, 40), ("S02", 310, 120),
+             ("S03", 120, 12), ("S04", 180, 70)]
+    sequential, sequential_inventory, _ = _parallel_plan(
+        tmp_path, specs, 1, "sequential")
+    parallel, parallel_inventory, _ = _parallel_plan(
+        tmp_path, specs, 4, "parallel")
+    sequential_result = run_plan(sequential["plan"], sequential["sha256"])
+    parallel_result = run_plan(parallel["plan"], parallel["sha256"])
+    assert parallel_result["workers"] == 4
+    assert parallel_result["scheduling"] == "largest_first_admitted_stream_rows"
+    ledger = sqlite3.connect(parallel_inventory["ledger_path"])
+    rows = ledger.execute(
+        "SELECT member,status,COUNT(*) FROM members GROUP BY member,status"
+    ).fetchall()
+    ledger.close()
+    assert len(rows) == len(specs)
+    assert all(status == "complete" and count == 1 for _, status, count in rows)
+    for symbol, _, _ in specs:
+        for name in ("base.parquet",):
+            assert _decoded_member(sequential_inventory["base_root"], symbol, name) == _decoded_member(
+                parallel_inventory["base_root"], symbol, name)
+        for name in ("features.parquet", "support.parquet"):
+            assert _decoded_member(sequential_inventory["feature_root"], symbol, name) == _decoded_member(
+                parallel_inventory["feature_root"], symbol, name)
+    assert sequential_result["members"] == parallel_result["members"] == len(specs)
+
+
+def test_parallel_runner_reuses_completed_base_features_and_recovers_running_ledger(tmp_path):
+    plan, inventory, sources = _parallel_plan(
+        tmp_path, [("RST", 90, 30)], 2, "restart")
+    base = Path(inventory["base_root"]) / "session_date=2026-09-02" / "symbol=RST"
+    pair, context = sources["RST"]
+    base_result = build_base_partition(pair, context, base, batch_size=7)
+    base_sha = sha256_file(base_result.manifest_path)[0]
+    connection = sqlite3.connect(inventory["ledger_path"])
+    connection.execute(
+        "CREATE TABLE members (member TEXT PRIMARY KEY,status TEXT NOT NULL,"
+        "base_manifest TEXT,feature_manifest TEXT,error TEXT,updated_ns INTEGER NOT NULL)")
+    connection.execute(
+        "INSERT INTO members VALUES (?,?,?,?,?,?)",
+        ("2026-09-02/RST", "running", None, None, None, 1))
+    connection.commit()
+    connection.close()
+    first = run_plan(plan["plan"], plan["sha256"])
+    assert first["members"] == 1
+    assert sha256_file(base_result.manifest_path)[0] == base_sha
+    feature = (Path(inventory["feature_root"]) / "session_date=2026-09-02"
+               / "symbol=RST" / "manifest.json")
+    feature_sha = sha256_file(feature)[0]
+    second = run_plan(plan["plan"], plan["sha256"])
+    assert second["members"] == 1
+    assert sha256_file(base_result.manifest_path)[0] == base_sha
+    assert sha256_file(feature)[0] == feature_sha
+
+
+@pytest.mark.parametrize("workers", [0, -1, 1.5, True, 9])
+def test_plan_rejects_invalid_worker_counts(tmp_path, workers):
+    inventory = {
+        "members": [], "base_root": str(tmp_path / "base"),
+        "feature_root": str(tmp_path / "features"),
+        "ledger_path": str(tmp_path / "ledger.sqlite"),
+    }
+    for name, value in (
+        ("inventory.json", inventory), ("admissions.json", {"findings": []}),
+        ("config.json", DEFAULT_CONFIG.to_dict()),
+        ("limits.json", {"workers": workers}),
+    ):
+        (tmp_path / name).write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="integer from 1 through 8"):
+        create_plan(tmp_path / "inventory.json", tmp_path / "admissions.json",
+                    tmp_path / "config.json", tmp_path / "limits.json",
+                    tmp_path / "plan")
+
+
+def test_plan_rejects_duplicate_members(tmp_path):
+    member = {"session_date": "2026-09-02", "symbol": "DUP"}
+    inventory = {"members": [member, member]}
+    for name, value in (
+        ("inventory.json", inventory), ("admissions.json", {"findings": []}),
+        ("config.json", DEFAULT_CONFIG.to_dict()),
+        ("limits.json", {"workers": 2}),
+    ):
+        (tmp_path / name).write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="duplicate calculation member"):
+        create_plan(tmp_path / "inventory.json", tmp_path / "admissions.json",
+                    tmp_path / "config.json", tmp_path / "limits.json",
+                    tmp_path / "plan")
+
+
+def test_aggregate_rss_limit_stops_all_active_members(tmp_path):
+    plan, inventory, _ = _parallel_plan(
+        tmp_path, [("M00", 2000, 10), ("M01", 2000, 10)], 2, "rss-stop")
+    body = json.loads(Path(plan["plan"]).read_text())
+    body["limits"]["process_tree_rss_stop_bytes"] = 1
+    write_atomic_json(plan["plan"], body)
+    expected = sha256_file(plan["plan"])[0]
+    with pytest.raises(ValueError, match="aggregate process-tree RSS"):
+        run_plan(plan["plan"], expected)
+    connection = sqlite3.connect(inventory["ledger_path"])
+    states = dict(connection.execute("SELECT member,status FROM members").fetchall())
+    connection.close()
+    assert states and set(states.values()) == {"interrupted"}
+
+
+def test_worker_failure_stops_dispatch_and_interrupts_active_members(tmp_path):
+    specs = [("BAD", 500, -200), ("SLOW", 10000, 100), ("UNSENT", 10000, 90)]
+    plan, inventory, _ = _parallel_plan(tmp_path, specs, 2, "worker-failure")
+    with pytest.raises(ValueError, match="member failed: 2026-09-02/BAD"):
+        run_plan(plan["plan"], plan["sha256"])
+    connection = sqlite3.connect(inventory["ledger_path"])
+    states = dict(connection.execute("SELECT member,status FROM members").fetchall())
+    connection.close()
+    assert states["2026-09-02/BAD"] == "failed"
+    assert states["2026-09-02/SLOW"] == "interrupted"
+    assert "2026-09-02/UNSENT" not in states
+    for member, status in states.items():
+        if status == "complete":
+            symbol = member.split("/")[1]
+            assert (Path(inventory["base_root"]) / "session_date=2026-09-02"
+                    / f"symbol={symbol}" / "manifest.json").is_file()
+            assert (Path(inventory["feature_root"]) / "session_date=2026-09-02"
+                    / f"symbol={symbol}" / "manifest.json").is_file()
+
+
+def _abrupt_worker(*args):
+    os._exit(17)
+
+
+def test_abrupt_worker_death_fails_member_without_orphans(tmp_path, monkeypatch):
+    import tape_data_product.calculate_runtime as runtime
+
+    plan, inventory, _ = _parallel_plan(tmp_path, [("DIE", 1000, 10)], 1, "abrupt")
+    monkeypatch.setattr(runtime, "_worker_main", _abrupt_worker)
+    with pytest.raises(ValueError, match="worker exited abruptly.*exit code 17"):
+        run_plan(plan["plan"], plan["sha256"])
+    connection = sqlite3.connect(inventory["ledger_path"])
+    state = connection.execute("SELECT status FROM members WHERE member=?",
+                               ("2026-09-02/DIE",)).fetchone()[0]
+    connection.close()
+    assert state == "failed"
+    assert not [child for child in __import__("psutil").Process().children(recursive=True)
+                if child.is_running() and "spawn_main" in " ".join(child.cmdline())]
+
+
+def test_parent_interruption_terminates_workers_and_reconciles_on_restart(tmp_path):
+    plan, inventory, _ = _parallel_plan(
+        tmp_path, [("INT", 15000, 600)], 1, "interrupt")
+    code = (
+        "import sys; from tape_data_product.calculate import run_plan; "
+        "run_plan(sys.argv[1], sys.argv[2])"
+    )
+    parent = subprocess.Popen(
+        [sys.executable, "-c", code, plan["plan"], plan["sha256"]],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 10
+    worker_pids = []
+    while time.monotonic() < deadline:
+        if Path(inventory["ledger_path"]).exists():
+            connection = sqlite3.connect(inventory["ledger_path"])
+            row = connection.execute("SELECT status FROM members").fetchone()
+            connection.close()
+            descendants = __import__("psutil").Process(parent.pid).children(recursive=True)
+            worker_pids = [child.pid for child in descendants
+                           if "spawn_main" in " ".join(child.cmdline())]
+            if row == ("running",) and worker_pids:
+                break
+        time.sleep(0.05)
+    assert worker_pids
+    os.kill(parent.pid, signal.SIGTERM)
+    assert parent.wait(timeout=10) != 0
+    reap_deadline = time.monotonic() + 5
+    while time.monotonic() < reap_deadline:
+        alive = [pid for pid in worker_pids
+                 if __import__("psutil").pid_exists(pid)
+                 and __import__("psutil").Process(pid).status()
+                 != __import__("psutil").STATUS_ZOMBIE]
+        if not alive:
+            break
+    connection = sqlite3.connect(inventory["ledger_path"])
+    assert connection.execute("SELECT status FROM members").fetchone() == ("running",)
+    connection.close()
+    # A new parent reconciles ledger state and validates/rebuilds outputs.
+    result = run_plan(plan["plan"], plan["sha256"])
+    assert result["status"] == "complete"
