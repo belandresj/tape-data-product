@@ -180,6 +180,35 @@ def test_member_accounting_distinguishes_no_eligible_and_valid_zero_match():
     assert all(item["matching_share"] is None for item in summary["contributions"])
 
 
+def test_hand_counted_multisymbol_contributions_and_member_run_boundary():
+    emitted = []
+    selected = predicates([{"field": "quote_metric", "operator": "==", "value": 2}])
+    reducer = EndpointQueryReducer(selected, "query-multi", run_sink=emitted.append)
+    reducer.consume_rows([
+        row(0, 2, symbol="AAA"),
+        row(1, 2, symbol="AAA"),
+        row(2, 3, symbol="AAA"),
+        row(0, 2, symbol="BBB"),
+        row(1, None, mask=8, symbol="BBB"),
+        row(2, 1, symbol="BBB"),
+    ])
+    summary = reducer.finish(RunBoundary("member_boundary", False))
+    members = {item["symbol"]: item for item in summary["members"]}
+    assert summary["totals"] == {
+        "selected": 6, "eligible": 5, "matching": 3,
+        "nonmatching": 2, "unavailable": 1,
+    }
+    assert members["AAA"]["matching"] == 2
+    assert members["BBB"]["matching"] == 1
+    contributions = {item["symbol"]: item for item in summary["contributions"]}
+    assert contributions["AAA"]["matching_share"] == pytest.approx(2 / 3)
+    assert contributions["BBB"]["matching_share"] == pytest.approx(1 / 3)
+    assert emitted[0]["match_count"] == 2
+    assert emitted[0]["closure_reason"] == "nonmatching"
+    assert emitted[1]["match_count"] == 1
+    assert emitted[1]["closure_reason"] == "unavailable"
+
+
 def test_query_identity_is_canonical_and_extra_display_does_not_change_matches():
     selected = predicates()
     base = dict(
