@@ -185,6 +185,8 @@ def admit_inventory(inventory, evidence, output):
         if not reasons:
             try:
                 pair,context,_,_=load_member_descriptors(pair_path,context_path)
+                if f'{pair["session_date"]}/{pair["symbol"]}'!=key or context["member"]!=key:
+                    raise ContractError("descriptor member does not match inventory member")
             except (ContractError,FileNotFoundError) as error:
                 reasons.append(f"descriptor_rejected:{error}")
         state = "metadata_admitted" if not reasons else "blocked"

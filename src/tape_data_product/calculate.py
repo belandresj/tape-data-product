@@ -6,6 +6,7 @@ import json
 import sqlite3
 import sys
 import time
+import math
 from pathlib import Path
 
 from .contracts import DEFAULT_CONFIG, contract_identity
@@ -45,25 +46,81 @@ def _nearest_existing(path):
     return path
 
 
+TRANSFER_FIELDS={"version","kind","session_date","symbol","stream","key","relative_path",
+                 "sha256","size_bytes","rows","verify_mode","reuse_path"}
+
+
 def _transfer_summary(path):
-    members={};objects=bytes_total=0
+    """Read the immutable transfer catalog and retain every object identity.
+
+    Aggregate counts alone are not admission: a duplicate stream can otherwise
+    replace the intended object while preserving member/object/byte totals.
+    """
+    members={};records={};keys=set();paths=set();objects=bytes_total=0
     with Path(path).open() as handle:
         for line in handle:
             if not line.strip():continue
             record=json.loads(line)
             if record.get("kind")!="canonical_tq":continue
-            key=(record.get("session_date"),record.get("symbol"));stream=record.get("stream")
-            if stream not in ("quotes","trades") or type(record.get("size_bytes")) is not int:raise ContractError("malformed transfer inventory")
-            members.setdefault(key,set()).add(stream);objects+=1;bytes_total+=record["size_bytes"]
+            day=record.get("session_date");symbol=record.get("symbol");stream=record.get("stream")
+            member=f"{day}/{symbol}"
+            if (set(record)!=TRANSFER_FIELDS or record.get("version")!="raw_migration_object_v1"
+                    or stream not in ("quotes","trades") or record.get("verify_mode")!="tq_parquet_sip_order"
+                    or type(record.get("key")) is not str or type(record.get("relative_path")) is not str
+                    or record["key"]!=record["relative_path"] or Path(record["key"]).is_absolute()
+                    or ".." in Path(record["key"]).parts
+                    or type(record.get("sha256")) is not str or not re.fullmatch(r"[0-9a-f]{64}",record["sha256"])
+                    or type(record.get("size_bytes")) is not int or record["size_bytes"]<0
+                    or type(record.get("rows")) is not int or record["rows"]<0
+                    or record.get("reuse_path") is not None and type(record["reuse_path"]) is not str):
+                raise ContractError("malformed transfer inventory")
+            object_id=(member,stream)
+            if object_id in records or record["key"] in keys or record["relative_path"] in paths:
+                raise ContractError("duplicate transfer object/stream")
+            records[object_id]=record;keys.add(record["key"]);paths.add(record["relative_path"])
+            key=(day,symbol);members.setdefault(key,set()).add(stream);objects+=1;bytes_total+=record["size_bytes"]
     paired={f"{d}/{s}" for (d,s),streams in members.items() if streams=={"quotes","trades"}}
     if any(streams!={"quotes","trades"} for streams in members.values()):raise ContractError("unpaired transfer member")
-    return paired,objects,bytes_total
+    return paired,objects,bytes_total,records
+
+
+def _validate_measurement(body,plan,release):
+    fields={"version","status","kind","source_revision","wheel_sha256","config_sha256",
+            "sample","rows","read_bytes","peak_rss_bytes","wall_seconds","disk_bytes"}
+    if (type(body) is not dict or set(body)!=fields
+            or body["version"]!="tape_representative_measurement_v1"
+            or body["status"]!="accepted" or body["kind"]!="representative_measurement"
+            or body["source_revision"]!=release.get("source_revision")
+            or body["wheel_sha256"]!=release.get("wheel_sha256")
+            or body["config_sha256"]!=digest(plan["config"])):
+        raise ContractError("measurement identity")
+    sample=body["sample"]
+    if (type(sample) is not dict or set(sample)!={"members","coverage_seconds"}
+            or type(sample["members"]) is not list or not sample["members"]
+            or any(type(x) is not str or not re.fullmatch(r"\d{4}-\d{2}-\d{2}/[A-Z0-9][A-Z0-9._-]{0,31}",x) for x in sample["members"])
+            or len(set(sample["members"]))!=len(sample["members"])
+            or type(sample["coverage_seconds"]) is not int or sample["coverage_seconds"]<=0):
+        raise ContractError("measurement sample")
+    rows=body["rows"]
+    if (type(rows) is not dict or set(rows)!={"base","features","support"}
+            or any(type(rows[x]) is not int or rows[x]<=0 for x in rows)
+            or rows["base"]!=rows["features"] or rows["base"]!=rows["support"]):
+        raise ContractError("measurement rows")
+    disk=body["disk_bytes"]
+    if (type(disk) is not dict or set(disk)!={"base","features","scratch_peak"}
+            or any(type(disk[x]) is not int or disk[x]<0 for x in disk)):
+        raise ContractError("measurement disk")
+    if (type(body["read_bytes"]) is not int or body["read_bytes"]<=0
+            or type(body["peak_rss_bytes"]) is not int or body["peak_rss_bytes"]<=0
+            or type(body["wall_seconds"]) not in (int,float) or not math.isfinite(body["wall_seconds"])
+            or body["wall_seconds"]<=0):
+        raise ContractError("measurement resources")
 
 
 def _preflight(plan):
     from .replay.builder import _implementation_identity as base_identity
     from .features.endpoint_ew import _implementation_identity as feature_identity
-    blockers=[]
+    blockers=[];transfer_records=None
     inventory=read_json(plan["inventory_path"]);admissions=read_json(plan["admissions_path"])
     if inventory.get("members")!=plan["members"] or len(plan["members"])!=plan["expected_members"]:
         blockers.append("expected_member_reconciliation_failed")
@@ -75,7 +132,7 @@ def _preflight(plan):
     else:
         try:
             if sha256_file(plan["transfer_manifest_path"])[0]!=plan["transfer_manifest_sha256"]:raise ContractError("changed")
-            transfer_members,objects,transfer_bytes=_transfer_summary(plan["transfer_manifest_path"])
+            transfer_members,objects,transfer_bytes,transfer_records=_transfer_summary(plan["transfer_manifest_path"])
             expected={f"{m['session_date']}/{m['symbol']}" for m in plan["members"]}
             if (transfer_members!=expected or objects!=plan.get("transfer_expected_objects") or transfer_bytes!=plan.get("transfer_expected_bytes")):
                 blockers.append("transfer_inventory_reconciliation_failed")
@@ -93,7 +150,7 @@ def _preflight(plan):
     findings={x.get("member"):x for x in admissions.get("findings",[]) if type(x) is dict}
     if any(findings.get(f"{m['session_date']}/{m['symbol']}",{}).get("state")!="metadata_admitted" for m in plan["members"]):
         blockers.append("admission_descriptor_reconciliation_failed")
-    descriptors={}
+    descriptors={};descriptor_objects={}
     try:
         if sha256_file(plan["admitted_index_path"])[0]!=plan["admitted_index_sha256"]:raise ContractError("index changed")
         index=sqlite3.connect(f'file:{plan["admitted_index_path"]}?mode=ro',uri=True)
@@ -102,14 +159,28 @@ def _preflight(plan):
         from .replay.admission import load_member_descriptors
         for key,pair,pair_sha,context,context_sha in rows:
             if sha256_file(pair)[0]!=pair_sha or sha256_file(context)[0]!=context_sha:raise ContractError("descriptor changed")
-            load_member_descriptors(pair,context);descriptors[key]=(pair,context)
+            pair_body,context_body,_,_=load_member_descriptors(pair,context)
+            canonical=f'{pair_body["session_date"]}/{pair_body["symbol"]}'
+            if canonical!=key or context_body["member"]!=key:raise ContractError("descriptor member mismatch")
+            descriptors[key]=(pair,context);descriptor_objects[key]=pair_body["streams"]
     except (KeyError,OSError,sqlite3.Error,ContractError):blockers.append("admitted_descriptor_identity_mismatch")
+    if transfer_records is not None and "admitted_descriptor_identity_mismatch" not in blockers:
+        try:
+            for member,streams in descriptor_objects.items():
+                for stream,declared in streams.items():
+                    record=transfer_records[(member,stream)]
+                    if (record["key"]!=declared["path"] or record["relative_path"]!=declared["path"]
+                            or record["sha256"]!=declared["sha256"] or record["size_bytes"]!=declared["bytes"]
+                            or record["rows"]!=declared["rows"] or declared["terminal_complete"] is not True):
+                        raise ContractError("transfer/source descriptor mismatch")
+        except (KeyError,ContractError):blockers.append("transfer_object_identity_mismatch")
     if not plan["measurement_references"]:blockers.append("representative_measurement_missing")
     else:
         try:
             for reference in plan["measurement_references"]:
-                if set(reference)!={"path","sha256"} or sha256_file(reference["path"])[0]!=reference["sha256"] or read_json(reference["path"]).get("status")!="accepted":raise ContractError("measurement")
-        except (TypeError,OSError,ContractError):blockers.append("representative_measurement_identity_mismatch")
+                if set(reference)!={"path","sha256"} or sha256_file(reference["path"])[0]!=reference["sha256"]:raise ContractError("measurement")
+                _validate_measurement(read_json(reference["path"]),plan,plan.get("release") or {})
+        except (KeyError,TypeError,OSError,ContractError):blockers.append("representative_measurement_identity_mismatch")
     release=plan.get("release") or {}
     expected_release={"source_revision","wheel_path","wheel_sha256","executable","contract_identity","base_implementation_identity","feature_implementation_identity"}
     if set(release)!=expected_release:

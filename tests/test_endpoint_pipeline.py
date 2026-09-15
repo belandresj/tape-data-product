@@ -199,17 +199,46 @@ def test_manifest_declared_rows_are_verified(tmp_path):
 
 def test_one_worker_plan_executes_base_then_features(tmp_path):
     pair,context=fixture(tmp_path,70);wheel=tmp_path/"candidate.whl";wheel.write_bytes(b"synthetic-wheel-identity")
-    transfer_manifest=tmp_path/"transfer.jsonl";transfer_records=[{"kind":"canonical_tq","session_date":"2026-09-02","symbol":"SYN","stream":"quotes","size_bytes":3},{"kind":"canonical_tq","session_date":"2026-09-02","symbol":"SYN","stream":"trades","size_bytes":5}];transfer_manifest.write_text("".join(json.dumps(x)+"\n" for x in transfer_records));transfer_manifest_sha=sha256_file(transfer_manifest)[0]
+    pair_body=json.loads(pair.read_text());transfer_manifest=tmp_path/"transfer.jsonl";transfer_records=[]
+    for stream in ("quotes","trades"):
+        declared=pair_body["streams"][stream];transfer_records.append({"version":"raw_migration_object_v1","kind":"canonical_tq","session_date":"2026-09-02","symbol":"SYN","stream":stream,"key":declared["path"],"relative_path":declared["path"],"sha256":declared["sha256"],"size_bytes":declared["bytes"],"rows":declared["rows"],"verify_mode":"tq_parquet_sip_order","reuse_path":None})
+    transfer_manifest.write_text("".join(json.dumps(x)+"\n" for x in transfer_records));transfer_manifest_sha=sha256_file(transfer_manifest)[0];transfer_bytes=sum(x["size_bytes"] for x in transfer_records)
     completion=tmp_path/"transfer-complete.json";completion.write_text(json.dumps({"status":"complete","expected_members":1,"manifest_sha256":transfer_manifest_sha,"objects":2,"bytes":8}))
-    measurement=tmp_path/"measurement.json";measurement.write_text(json.dumps({"status":"accepted","kind":"representative_measurement"}))
     member={"session_date":"2026-09-02","symbol":"SYN"}
     release={"source_revision":"a"*40,"wheel_path":str(wheel),"wheel_sha256":sha256_file(wheel)[0],"executable":sys.executable,"contract_identity":contract_identity(),"base_implementation_identity":base_implementation_identity()["sha256"],"feature_implementation_identity":feature_implementation_identity()["sha256"]}
-    inventory={"members":[member],"transfer_complete":True,"transfer_manifest_path":str(transfer_manifest),"transfer_manifest_sha256":transfer_manifest_sha,"transfer_expected_objects":2,"transfer_expected_bytes":8,"transfer_completion":{"path":str(completion),"sha256":sha256_file(completion)[0]},"measurement_references":[{"path":str(measurement),"sha256":sha256_file(measurement)[0]}],"release":release,"base_root":str(tmp_path/"run-base"),"feature_root":str(tmp_path/"run-features"),"ledger_path":str(tmp_path/"run-ledger.sqlite")}
+    completion.write_text(json.dumps({"status":"complete","expected_members":1,"manifest_sha256":transfer_manifest_sha,"objects":2,"bytes":transfer_bytes}))
+    measurement=tmp_path/"measurement.json";measurement.write_text(json.dumps({"version":"tape_representative_measurement_v1","status":"accepted","kind":"representative_measurement","source_revision":release["source_revision"],"wheel_sha256":release["wheel_sha256"],"config_sha256":digest(DEFAULT_CONFIG.to_dict()),"sample":{"members":["2026-09-02/SYN"],"coverage_seconds":70},"rows":{"base":70,"features":70,"support":70},"read_bytes":1000,"peak_rss_bytes":1000000,"wall_seconds":1.25,"disk_bytes":{"base":1000,"features":2000,"scratch_peak":3000}}))
+    inventory={"members":[member],"transfer_complete":True,"transfer_manifest_path":str(transfer_manifest),"transfer_manifest_sha256":transfer_manifest_sha,"transfer_expected_objects":2,"transfer_expected_bytes":transfer_bytes,"transfer_completion":{"path":str(completion),"sha256":sha256_file(completion)[0]},"measurement_references":[{"path":str(measurement),"sha256":sha256_file(measurement)[0]}],"release":release,"base_root":str(tmp_path/"run-base"),"feature_root":str(tmp_path/"run-features"),"ledger_path":str(tmp_path/"run-ledger.sqlite")}
     admissions={"findings":[{"member":"2026-09-02/SYN","state":"metadata_admitted","source_pair_path":str(pair),"member_context_path":str(context)}]};limits={"workers":1,"batch_size":7,"disk_reserve_bytes":0,"scratch_cap_bytes":0}
     for name,value in (("inventory-run.json",inventory),("admissions-run.json",admissions),("config-run.json",DEFAULT_CONFIG.to_dict()),("limits-run.json",limits)):(tmp_path/name).write_text(json.dumps(value))
     plan=create_plan(tmp_path/"inventory-run.json",tmp_path/"admissions-run.json",tmp_path/"config-run.json",tmp_path/"limits-run.json",tmp_path/"run-plan")
     result=run_plan(plan["plan"],plan["sha256"]);assert result["status"]=="complete" and result["members"]==1
     assert (tmp_path/"run-base/session_date=2026-09-02/symbol=SYN/manifest.json").exists() and (tmp_path/"run-features/session_date=2026-09-02/symbol=SYN/manifest.json").exists()
+
+
+def test_plan_rejects_descriptor_member_substitution_before_ledger(tmp_path):
+    descriptor_root=tmp_path/"descriptors";descriptor_root.mkdir();pair,context=fixture(descriptor_root,2)
+    inventory={"members":[{"session_date":"2026-09-02","symbol":"OTHER"}],"transfer_complete":False,"measurement_references":[],"base_root":str(tmp_path/"base"),"feature_root":str(tmp_path/"features"),"ledger_path":str(tmp_path/"ledger.sqlite")}
+    admissions={"findings":[{"member":"2026-09-02/OTHER","state":"metadata_admitted","source_pair_path":str(pair),"member_context_path":str(context)}]}
+    for name,value in (("inventory.json",inventory),("admissions.json",admissions),("config.json",DEFAULT_CONFIG.to_dict()),("limits.json",{"workers":1,"disk_reserve_bytes":0,"scratch_cap_bytes":0})):(tmp_path/name).write_text(json.dumps(value))
+    plan=create_plan(tmp_path/"inventory.json",tmp_path/"admissions.json",tmp_path/"config.json",tmp_path/"limits.json",tmp_path/"plan")
+    with pytest.raises(ValueError,match="admitted_descriptor_identity_mismatch"):run_plan(plan["plan"],plan["sha256"])
+    assert not (tmp_path/"ledger.sqlite").exists()
+
+
+def test_transfer_and_measurement_bodies_require_exact_identities(tmp_path):
+    descriptor_root=tmp_path/"descriptors";descriptor_root.mkdir();pair,context=fixture(descriptor_root,2);p=json.loads(pair.read_text())
+    records=[]
+    for stream in ("quotes","trades"):
+        x=p["streams"][stream];records.append({"version":"raw_migration_object_v1","kind":"canonical_tq","session_date":"2026-09-02","symbol":"SYN","stream":stream,"key":x["path"],"relative_path":x["path"],"sha256":x["sha256"],"size_bytes":x["bytes"],"rows":x["rows"],"verify_mode":"tq_parquet_sip_order","reuse_path":None})
+    duplicate=tmp_path/"duplicate.jsonl";duplicate.write_text("".join(json.dumps(x)+"\n" for x in records+[records[0]]))
+    from tape_data_product.calculate import _transfer_summary, _validate_measurement
+    with pytest.raises(ValueError,match="duplicate transfer"):_transfer_summary(duplicate)
+    release={"source_revision":"a"*40,"wheel_sha256":"b"*64}
+    body={"version":"tape_representative_measurement_v1","status":"accepted","kind":"representative_measurement","source_revision":release["source_revision"],"wheel_sha256":release["wheel_sha256"],"config_sha256":digest(DEFAULT_CONFIG.to_dict()),"sample":{"members":["2026-09-02/SYN"],"coverage_seconds":2},"rows":{"base":2,"features":2,"support":2},"read_bytes":1,"peak_rss_bytes":1,"wall_seconds":.1,"disk_bytes":{"base":1,"features":1,"scratch_peak":1}}
+    _validate_measurement(body,{"config":DEFAULT_CONFIG.to_dict()},release)
+    body["wheel_sha256"]="c"*64
+    with pytest.raises(ValueError,match="measurement identity"):_validate_measurement(body,{"config":DEFAULT_CONFIG.to_dict()},release)
 
 def test_ambiguous_whole_second_halts_require_canonical_union(tmp_path):
     pair,context=fixture(tmp_path,3);start,_=session_bounds("2026-09-02");c=json.loads(context.read_text())
