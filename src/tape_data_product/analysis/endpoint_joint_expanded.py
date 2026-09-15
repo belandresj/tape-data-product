@@ -386,7 +386,17 @@ def _plot_panel(ax, matrix, x_axis: Axis, y_axis: Axis, norm, relationship: str)
     return image
 
 
-def render_gated_six(records: list[dict], summaries: dict[str, dict], output: Path) -> None:
+def _population_label(members: int, reference_kind: str) -> str:
+    if reference_kind == "scaling":
+        return f"{members}-member deterministic scaling sample"
+    if reference_kind == "pilot":
+        return f"{members}-member deterministic pilot"
+    return f"{members}-member {reference_kind.replace('_', ' ')} reference"
+
+
+def render_gated_six(
+    records: list[dict], summaries: dict[str, dict], output: Path, population_label: str
+) -> None:
     axes_config = {name: Axis(name, spec["unit"], spec["scale"], spec["edges"]) for name, spec in DEFAULT_AXES.items()}
     relationships = ("spread", "participation", "trade_rate")
     titles = {"spread": "Mean full quoted spread", "participation": "Movement participation", "trade_rate": "Eligible trade rate"}
@@ -412,13 +422,19 @@ def render_gated_six(records: list[dict], summaries: dict[str, dict], output: Pa
             ax.text(.01, .99, f"pair-valid {summary['pair_valid']:,}\nplotted {summary['plotted']/summary['pair_valid']:.2%}", va="top", transform=ax.transAxes, fontsize=8, bbox={"facecolor":"white","alpha":.8,"edgecolor":"none"})
         colorbar = fig.colorbar(image, ax=list(axes[row_index, :]), pad=.01, fraction=.025)
         colorbar.set_label("% of pair-valid observations per bin (log color)")
-    fig.suptitle("Activity-gated endpoint/EW joint distributions — 24-member pilot", fontsize=16)
+    fig.suptitle(f"Activity-gated endpoint/EW joint distributions — {population_label}", fontsize=16)
     fig.text(.09, .03, "Gate: corresponding EW trade rate ≥1/s and trade-age p90 ≤2s; 30s EW pairs with window60s, 120s EW with window300s. Historical membership, pooled sessions.", fontsize=9)
     fig.savefig(output, dpi=170)
     plt.close(fig)
 
 
-def render_activity_bands(records: list[dict], summaries: dict[str, dict], output: Path, relationship: str) -> None:
+def render_activity_bands(
+    records: list[dict],
+    summaries: dict[str, dict],
+    output: Path,
+    relationship: str,
+    population_label: str,
+) -> None:
     axes_config = {name: Axis(name, spec["unit"], spec["scale"], spec["edges"]) for name, spec in DEFAULT_AXES.items()}
     band_labels = dict(ACTIVITY_BANDS)
     fig, axes = plt.subplots(2, len(GATED_DISPLAY_BANDS), figsize=(22, 9), sharex=True, sharey=True)
@@ -446,7 +462,7 @@ def render_activity_bands(records: list[dict], summaries: dict[str, dict], outpu
     colorbar = fig.colorbar(image, ax=list(axes.ravel()), pad=.01, fraction=.018)
     colorbar.set_label("% of band pair-valid observations per bin (log color)")
     label = "spread" if relationship == "spread" else "participation"
-    fig.suptitle(f"RMS return versus {label}, by activity band — activity-gated pilot", fontsize=16)
+    fig.suptitle(f"RMS return versus {label}, by activity band — {population_label}", fontsize=16)
     fig.text(.07, .04, "Bands partition gate-passing observations; ≥100 trades/s is retained. Each panel uses its own pair-valid denominator. Cyan lines show RMS/spread ratios 0.1, 1, and 10 on spread panels.", fontsize=9)
     fig.savefig(output, dpi=170)
     plt.close(fig)
@@ -514,9 +530,24 @@ def run(args: argparse.Namespace) -> dict:
             writer.writerows(gate_rows)
         render_started = time.perf_counter()
         summary_map = {row["panel_id"]: row for row in summaries}
-        render_gated_six(histogram_rows, summary_map, output / "activity_gated_six_panel.png")
-        render_activity_bands(histogram_rows, summary_map, output / "rms_spread_by_activity_band.png", "spread")
-        render_activity_bands(histogram_rows, summary_map, output / "rms_participation_by_activity_band.png", "participation")
+        population_label = _population_label(expected_members, handle.manifest["reference_kind"])
+        render_gated_six(
+            histogram_rows, summary_map, output / "activity_gated_six_panel.png", population_label
+        )
+        render_activity_bands(
+            histogram_rows,
+            summary_map,
+            output / "rms_spread_by_activity_band.png",
+            "spread",
+            population_label,
+        )
+        render_activity_bands(
+            histogram_rows,
+            summary_map,
+            output / "rms_participation_by_activity_band.png",
+            "participation",
+            population_label,
+        )
         render_wall = time.perf_counter() - render_started
     blocks_after = resource.getrusage(resource.RUSAGE_SELF).ru_inblock
     artifacts = []
@@ -557,6 +588,50 @@ def run(args: argparse.Namespace) -> dict:
     _write_json(output / "metadata.json", metadata)
     for _ in range(2):
         metadata["resources"]["output_bytes"] = sum(path.stat().st_size for path in output.iterdir() if path.is_file())
+        _write_json(output / "metadata.json", metadata)
+    return metadata
+
+
+def render_saved(output_dir: str | Path, *, population_label: str | None = None) -> dict:
+    """Re-render figures and refresh hashes without rescanning the feature data."""
+    output = Path(output_dir).resolve()
+    metadata = json.loads((output / "metadata.json").read_text())
+    summaries = json.loads((output / "coverage.json").read_text())
+    histogram_rows = pq.read_table(output / "histogram_counts.parquet").to_pylist()
+    summary_map = {row["panel_id"]: row for row in summaries}
+    if population_label is None:
+        population_label = _population_label(metadata["members"], metadata["reference_kind"])
+
+    started = time.perf_counter()
+    render_gated_six(
+        histogram_rows, summary_map, output / "activity_gated_six_panel.png", population_label
+    )
+    render_activity_bands(
+        histogram_rows,
+        summary_map,
+        output / "rms_spread_by_activity_band.png",
+        "spread",
+        population_label,
+    )
+    render_activity_bands(
+        histogram_rows,
+        summary_map,
+        output / "rms_participation_by_activity_band.png",
+        "participation",
+        population_label,
+    )
+    metadata["presentation_rerender_seconds"] = time.perf_counter() - started
+    metadata["presentation_label"] = population_label
+    artifacts = [
+        {"path": path.name, "bytes": path.stat().st_size, "sha256": _sha256(path)}
+        for path in sorted(output.iterdir())
+        if path.name not in {"metadata.json", "artifacts.json"} and path.is_file()
+    ]
+    _write_json(output / "artifacts.json", artifacts)
+    for _ in range(2):
+        metadata["resources"]["output_bytes"] = sum(
+            path.stat().st_size for path in output.iterdir() if path.is_file()
+        )
         _write_json(output / "metadata.json", metadata)
     return metadata
 
