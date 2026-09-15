@@ -186,6 +186,35 @@ def test_admission_emits_validated_member_descriptors(tmp_path):
     assert result["metadata_admitted"]==1 and result["blocked"]==0
     assert (tmp_path/"admitted/members/2026-09-02/SYN/source-pair.json").exists()
 
+
+def test_owner_accepted_historical_retrieval_is_admitted_but_recorded_unverified(tmp_path):
+    pair,context=fixture(tmp_path,6);p=json.loads(pair.read_text())
+    status="unverified_missing_original_vendor_pagination_receipts"
+    p["version"]="tape_source_pair_v2"
+    for name,stream in p["streams"].items():
+        stream["terminal_complete"]=False;stream["retrieval_completeness"]=status
+        coverage=tmp_path/"evidence"/f"{name}-coverage.json";body=json.loads(coverage.read_text())
+        body.update(version="source_coverage_v2",terminal_complete=False,retrieval_completeness=status)
+        coverage.write_text(json.dumps(body));stream["coverage_evidence_sha256"]=sha256_file(coverage)[0]
+    pair.write_text(json.dumps(p))
+    inventory=tmp_path/"inventory.json";inventory.write_text(json.dumps({"members":[{"session_date":"2026-09-02","symbol":"SYN"}]}))
+    evidence=tmp_path/"admission.json";evidence.write_text(json.dumps({"members":{"2026-09-02/SYN":{"quote_units":True,"trade_representation":True,"terminal_coverage":False,"historical_retrieval_completeness":status,"halt_context":True,"continuity":True,"source_pair_path":str(pair),"member_context_path":str(context)}}}))
+    result=admit_inventory(inventory,evidence,tmp_path/"admitted")
+    assert result["metadata_admitted"]==1 and result["blocked"]==0
+    assert result["findings"][0]["retrieval_completeness"]=="unverified"
+    base=tmp_path/"base";build_base_partition(result["findings"][0]["source_pair_path"],result["findings"][0]["member_context_path"],base)
+    stored=json.loads((base/"manifest.json").read_text())["inputs"]["streams"]
+    assert all(not stream["terminal_complete"] and stream["retrieval_completeness"]==status for stream in stored.values())
+
+
+def test_historical_retrieval_requires_explicit_unverified_descriptor_status(tmp_path):
+    pair,context=fixture(tmp_path,6);p=json.loads(pair.read_text());p["version"]="tape_source_pair_v2"
+    for name,stream in p["streams"].items():
+        stream["terminal_complete"]=False;stream["retrieval_completeness"]="verified"
+    pair.write_text(json.dumps(p))
+    with pytest.raises(ValueError,match="explicitly unverified"):
+        build_base_partition(pair,context,tmp_path/"base")
+
 def test_admission_rejects_interval_short_of_prefix(tmp_path):
     pair,context=fixture(tmp_path,6);c=json.loads(context.read_text());start=c["coverage"]["session_start_ns"];c["observation_intervals"]["quotes"]=[[start,start+5*NS]];context.write_text(json.dumps(c))
     p=json.loads(pair.read_text());coverage=tmp_path/"evidence"/"quotes-coverage.json";body=json.loads(coverage.read_text());body["intervals"]=c["observation_intervals"]["quotes"];coverage.write_text(json.dumps(body));p["streams"]["quotes"]["coverage_evidence_sha256"]=sha256_file(coverage)[0];pair.write_text(json.dumps(p))
@@ -223,7 +252,7 @@ def test_one_worker_plan_executes_base_then_features(tmp_path):
     member={"session_date":"2026-09-02","symbol":"SYN"}
     release={"source_revision":"a"*40,"wheel_path":str(wheel),"wheel_sha256":sha256_file(wheel)[0],"executable":sys.executable,"contract_identity":contract_identity(),"base_implementation_identity":base_implementation_identity()["sha256"],"feature_implementation_identity":feature_implementation_identity()["sha256"]}
     kind_summary={"canonical_tq":{"objects":2,"bytes":transfer_bytes},"discovery_reference":{"objects":0,"bytes":0},"halt_support":{"objects":0,"bytes":0}}
-    completion=tmp_path/"transfer-complete.json";completion.write_text(json.dumps({"version":"raw_migration_completion_v1","status":"complete","expected_members":1,"manifest_sha256":transfer_manifest_sha,"objects":2,"bytes":transfer_bytes,"kind_summary":kind_summary}))
+    completion=tmp_path/"transfer-complete.json";completion.write_text(json.dumps({"version":"raw_migration_completion_v1","status":"complete","manifest_sha256":transfer_manifest_sha,"expected_objects":2,"expected_bytes":transfer_bytes,"states":{"verified":{"objects":2,"bytes":transfer_bytes},"reused":{"objects":0,"bytes":0}},"reserved_download_bytes":transfer_bytes,"delivered_payload_bytes":transfer_bytes,"attempts":2,"elapsed_seconds":1.0,"scope":"transport identity only; production source admission is separate"}))
     guards={"workers":1,"threads":1,"batch_size":4096,"cpu_quota_percent":200,"tasks_max":64,"memory_max_bytes":1610612736,"memory_swap_max_bytes":0,"process_tree_rss_stop_bytes":1073741824,"runtime_max_seconds":600,"read_limit_bytes":1073741824,"output_scratch_limit_bytes":2147483648,"max_decoded_raw_rows":2000000};phase={"decoded_raw_rows":100,"read_bytes":1000,"peak_rss_bytes":1000000,"wall_seconds":1.25,"disk_bytes":{"output":2000,"scratch_peak":3000},"guards":guards};artifacts=[{"member":member,"source_pair_sha256":"1"*64,"context_sha256":"2"*64,"base_manifest_sha256":"3"*64,"feature_manifest_sha256":"4"*64,"rows":720} for member in ("2026-09-02/KDP","2026-09-02/NVDA")]
     measurement_body={"version":"tape_representative_measurement_v1","status":"accepted","kind":"representative_measurement","source_revision":release["source_revision"],"wheel_sha256":release["wheel_sha256"],"config_sha256":digest(DEFAULT_CONFIG.to_dict()),"sample":{"members":["2026-09-02/KDP","2026-09-02/NVDA"],"coverage_seconds_per_member":720},"rows":{"base":1440,"features":1440,"support":1440},"artifacts":artifacts,"phases":{"build":phase,"verification":phase},"independent_reconstruction":{"base_all_fields":"passed","features_explicit_histories":"passed","support_all_fields":"passed"}};measurement_id=digest(measurement_body);decision_body={"version":"tape_representativeness_decision_v1","status":"reviewed_accepted","population_sha256":digest([member]),"expected_members":1,"source_revision":release["source_revision"],"wheel_sha256":release["wheel_sha256"],"config_sha256":digest(DEFAULT_CONFIG.to_dict()),"measurement_ids":[measurement_id]};decision=tmp_path/"decision.json";decision.write_text(json.dumps(decision_body));decision_ref={"path":str(decision),"sha256":sha256_file(decision)[0]};measurement_body.update(measurement_id=measurement_id,readiness_decision_sha256=decision_ref["sha256"])
     measurement=tmp_path/"measurement.json";measurement.write_text(json.dumps(measurement_body))
@@ -267,6 +296,44 @@ def test_transfer_and_measurement_bodies_require_exact_identities(tmp_path):
     body["measurement_id"]=digest({k:v for k,v in body.items() if k not in {"measurement_id","readiness_decision_sha256"}})
     body["wheel_sha256"]="c"*64
     with pytest.raises(ValueError,match="measurement identity"):_validate_measurement(body,{"config":DEFAULT_CONFIG.to_dict()},release)
+
+
+def test_raw_migration_completion_reconciles_verified_and_reused_manifest_objects(tmp_path):
+    pair,_=fixture(tmp_path,2);p=json.loads(pair.read_text());records=[]
+    for stream in ("quotes","trades"):
+        x=p["streams"][stream]
+        records.append({"version":"raw_migration_object_v1","kind":"canonical_tq","session_date":"2026-09-02","symbol":"SYN","stream":stream,"key":x["path"],"relative_path":x["path"],"sha256":x["sha256"],"size_bytes":x["bytes"],"rows":x["rows"],"verify_mode":"tq_parquet_sip_order","reuse_path":None})
+    records[1]["reuse_path"]="/srv/retained/trades.parquet"
+    manifest=tmp_path/"transfer.jsonl";manifest.write_text("".join(json.dumps(x)+"\n" for x in records));manifest_sha=sha256_file(manifest)[0]
+    from tape_data_product.calculate import _transfer_summary,_validate_transfer_completion
+    _,objects,size,_,_,states=_transfer_summary(manifest)
+    body={"version":"raw_migration_completion_v1","status":"complete","manifest_sha256":manifest_sha,
+          "expected_objects":objects,"expected_bytes":size,"states":states,
+          "reserved_download_bytes":states["verified"]["bytes"],
+          "delivered_payload_bytes":states["verified"]["bytes"],"attempts":states["verified"]["objects"],
+          "elapsed_seconds":1.25,"scope":"transport identity only; production source admission is separate"}
+    assert _validate_transfer_completion(body,manifest_sha,objects,size,states)==body
+
+
+@pytest.mark.parametrize("mutation",["manifest","totals","states","incomplete"])
+def test_raw_migration_completion_rejects_mismatch_or_incomplete_state(tmp_path,mutation):
+    pair,_=fixture(tmp_path,2);p=json.loads(pair.read_text());records=[]
+    for stream in ("quotes","trades"):
+        x=p["streams"][stream]
+        records.append({"version":"raw_migration_object_v1","kind":"canonical_tq","session_date":"2026-09-02","symbol":"SYN","stream":stream,"key":x["path"],"relative_path":x["path"],"sha256":x["sha256"],"size_bytes":x["bytes"],"rows":x["rows"],"verify_mode":"tq_parquet_sip_order","reuse_path":None})
+    manifest=tmp_path/"transfer.jsonl";manifest.write_text("".join(json.dumps(x)+"\n" for x in records));manifest_sha=sha256_file(manifest)[0]
+    from tape_data_product.calculate import _transfer_summary,_validate_transfer_completion
+    _,objects,size,_,_,states=_transfer_summary(manifest)
+    body={"version":"raw_migration_completion_v1","status":"complete","manifest_sha256":manifest_sha,
+          "expected_objects":objects,"expected_bytes":size,"states":states,
+          "reserved_download_bytes":size,"delivered_payload_bytes":size,"attempts":objects,
+          "elapsed_seconds":1.25,"scope":"transport identity only; production source admission is separate"}
+    if mutation=="manifest":body["manifest_sha256"]="0"*64
+    elif mutation=="totals":body["expected_bytes"]+=1
+    elif mutation=="states":body["states"]={**states,"verified":{**states["verified"],"objects":1}}
+    else:body["status"]="running"
+    with pytest.raises(ValueError,match="transfer completion"):
+        _validate_transfer_completion(body,manifest_sha,objects,size,states)
 
 def test_ambiguous_whole_second_halts_require_canonical_union(tmp_path):
     pair,context=fixture(tmp_path,3);start,_=session_bounds("2026-09-02");c=json.loads(context.read_text())

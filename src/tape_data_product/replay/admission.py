@@ -14,6 +14,7 @@ PAIR_FIELDS = {"version", "symbol", "session_date", "currency", "adapter", "root
 CONTEXT_FIELDS = {"version", "member", "coverage", "observation_intervals", "gaps",
                   "instantaneous_breaks", "halts", "halt_evidence", "seed",
                   "continuity_evidence", "selection", "discovery"}
+HISTORICAL_RETRIEVAL_UNVERIFIED = "unverified_missing_original_vendor_pagination_receipts"
 
 
 def _member(symbol, day):
@@ -40,7 +41,7 @@ def _intervals(values, name, start, end):
 
 def load_member_descriptors(source_pair, member_context):
     pair, context = read_json(source_pair), read_json(member_context)
-    if set(pair) != PAIR_FIELDS or pair["version"] != "tape_source_pair_v1":
+    if set(pair) != PAIR_FIELDS or pair["version"] not in ("tape_source_pair_v1", "tape_source_pair_v2"):
         raise ContractError("unknown/missing source-pair fields or version")
     if set(context) != CONTEXT_FIELDS or context["version"] != "tape_member_context_v1":
         raise ContractError("unknown/missing member-context fields or version")
@@ -58,14 +59,20 @@ def load_member_descriptors(source_pair, member_context):
         required = {"path", "sha256", "bytes", "rows", "schema_sha256", "clock",
                     "provenance_sha256", "coverage_evidence_sha256",
                     "provenance_path", "coverage_evidence_path", "terminal_complete"}
+        if pair["version"] == "tape_source_pair_v2":
+            required.add("retrieval_completeness")
         if set(stream) != required or stream["clock"] != "sip_timestamp_utc_ns":
             raise ContractError(f"malformed {name} descriptor")
         safe_relative(stream["path"])
         for path_key,hash_key in (("provenance_path","provenance_sha256"),("coverage_evidence_path","coverage_evidence_sha256")):
             evidence_path=evidence_root/safe_relative(stream[path_key])
             if sha256_file(evidence_path)[0]!=stream[hash_key]:raise ContractError(f"{name} evidence identity mismatch")
-        if not stream["terminal_complete"]:
-            raise ContractError(f"{name} terminal coverage is unresolved")
+        if pair["version"] == "tape_source_pair_v1":
+            if stream["terminal_complete"] is not True:
+                raise ContractError(f"{name} terminal coverage is unresolved")
+        elif (stream["terminal_complete"] is not False
+                or stream["retrieval_completeness"] != HISTORICAL_RETRIEVAL_UNVERIFIED):
+            raise ContractError(f"{name} historical retrieval completeness is not explicitly unverified")
         for key in ("sha256", "schema_sha256", "provenance_sha256", "coverage_evidence_sha256"):
             if type(stream[key]) is not str or not re.fullmatch(r"[0-9a-f]{64}", stream[key]):
                 raise ContractError(f"invalid {name} {key}")
@@ -105,8 +112,17 @@ def load_member_descriptors(source_pair, member_context):
             raise ContractError(f"{source} observation intervals do not cover declared prefix")
         coverage=read_json(evidence_root/safe_relative(pair["streams"][source]["coverage_evidence_path"]))
         expected={"version","member","stream","intervals","terminal_complete"}
-        if set(coverage)!=expected or coverage["version"]!="source_coverage_v1" or coverage["member"]!=member or coverage["stream"]!=source or coverage["terminal_complete"] is not True or tuple(map(tuple,coverage["intervals"]))!=declared:
+        if pair["version"] == "tape_source_pair_v2":
+            expected.add("retrieval_completeness")
+        if (set(coverage)!=expected or coverage["member"]!=member or coverage["stream"]!=source
+                or tuple(map(tuple,coverage["intervals"]))!=declared):
             raise ContractError(f"{source} coverage evidence does not support declared intervals")
+        if pair["version"] == "tape_source_pair_v1":
+            if coverage["version"]!="source_coverage_v1" or coverage["terminal_complete"] is not True:
+                raise ContractError(f"{source} terminal coverage is unresolved")
+        elif (coverage["version"]!="source_coverage_v2" or coverage["terminal_complete"] is not False
+                or coverage["retrieval_completeness"] != HISTORICAL_RETRIEVAL_UNVERIFIED):
+            raise ContractError(f"{source} historical retrieval completeness is not explicitly unverified")
         _intervals(context["gaps"].get(source, []), source + " gaps", session_start, cov["end_ns"])
         points = context["instantaneous_breaks"].get(source, [])
         if type(points) is not list or any(type(x) is not int or not session_start <= x < cov["end_ns"] for x in points):
@@ -177,8 +193,12 @@ def admit_inventory(inventory, evidence, output):
         seen.add(key)
         reasons = []
         item = evidence_members.get(key, {})
-        for required in ("quote_units", "trade_representation", "terminal_coverage", "halt_context", "continuity"):
+        for required in ("quote_units", "trade_representation", "halt_context", "continuity"):
             if not item.get(required): reasons.append(f"missing_{required}")
+        terminal_verified=item.get("terminal_coverage") is True
+        historical_unverified=item.get("historical_retrieval_completeness")==HISTORICAL_RETRIEVAL_UNVERIFIED
+        if not terminal_verified and not historical_unverified:
+            reasons.append("missing_terminal_coverage_or_accepted_historical_unverified_status")
         pair_path=item.get("source_pair_path");context_path=item.get("member_context_path")
         if not pair_path or not context_path:
             reasons.append("missing_member_descriptors")
@@ -191,7 +211,8 @@ def admit_inventory(inventory, evidence, output):
                 reasons.append(f"descriptor_rejected:{error}")
         state = "metadata_admitted" if not reasons else "blocked"
         admitted += state == "metadata_admitted"; blocked += state == "blocked"
-        finding={"member": key, "state": state, "reasons": reasons}
+        finding={"member": key, "state": state, "reasons": reasons,
+                 "retrieval_completeness":"verified" if terminal_verified else "unverified"}
         if state=="metadata_admitted":
             member_root=output/"members"/record["session_date"]/record["symbol"]
             write_atomic_json(member_root/"source-pair.json",pair);write_atomic_json(member_root/"context.json",context)

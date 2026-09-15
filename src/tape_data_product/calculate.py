@@ -61,6 +61,7 @@ def _transfer_summary(path):
     """
     members={};records={};keys=set();paths=set();objects=bytes_total=0
     kind_summary={kind:{"objects":0,"bytes":0} for kind in ("canonical_tq","discovery_reference","halt_support")}
+    state_summary={state:{"objects":0,"bytes":0} for state in ("verified","reused")}
     with Path(path).open() as handle:
         for line in handle:
             if not line.strip():continue
@@ -80,6 +81,8 @@ def _transfer_summary(path):
                 raise ContractError("duplicate transfer object/stream")
             keys.add(record["key"]);paths.add(record["relative_path"]);objects+=1;bytes_total+=record["size_bytes"]
             kind_summary[kind]["objects"]+=1;kind_summary[kind]["bytes"]+=record["size_bytes"]
+            state="reused" if record["reuse_path"] is not None else "verified"
+            state_summary[state]["objects"]+=1;state_summary[state]["bytes"]+=record["size_bytes"]
             if kind=="canonical_tq":
                 if (stream not in ("quotes","trades") or record.get("verify_mode")!="tq_parquet_sip_order"
                         or record["key"]!=record["relative_path"] or type(record.get("rows")) is not int or record["rows"]<0):
@@ -96,7 +99,42 @@ def _transfer_summary(path):
                 raise ContractError("malformed halt support")
     paired={f"{d}/{s}" for (d,s),streams in members.items() if streams=={"quotes","trades"}}
     if any(streams!={"quotes","trades"} for streams in members.values()):raise ContractError("unpaired transfer member")
-    return paired,objects,bytes_total,records,kind_summary
+    return paired,objects,bytes_total,records,kind_summary,state_summary
+
+
+TRANSFER_COMPLETION_FIELDS={"version","status","manifest_sha256","expected_objects","expected_bytes",
+                            "states","reserved_download_bytes","delivered_payload_bytes","attempts",
+                            "elapsed_seconds","scope"}
+
+
+def _validate_transfer_completion(body,manifest_sha256,expected_objects,expected_bytes,manifest_states):
+    """Reconcile the raw-migration completion record with its immutable manifest."""
+    if (type(body) is not dict or set(body)!=TRANSFER_COMPLETION_FIELDS
+            or body.get("version")!="raw_migration_completion_v1" or body.get("status")!="complete"
+            or body.get("manifest_sha256")!=manifest_sha256
+            or body.get("expected_objects")!=expected_objects or body.get("expected_bytes")!=expected_bytes
+            or body.get("scope")!="transport identity only; production source admission is separate"):
+        raise ContractError("transfer completion identity/totals mismatch")
+    states=body.get("states")
+    if (type(states) is not dict or set(states)!={"verified","reused"}
+            or any(type(value) is not dict or set(value)!={"objects","bytes"}
+                   or type(value["objects"]) is not int or value["objects"]<0
+                   or type(value["bytes"]) is not int or value["bytes"]<0
+                   for value in states.values())
+            or states!=manifest_states
+            or sum(value["objects"] for value in states.values())!=expected_objects
+            or sum(value["bytes"] for value in states.values())!=expected_bytes):
+        raise ContractError("transfer completion states mismatch")
+    verified=states["verified"]
+    if (type(body.get("attempts")) is not int or body["attempts"]<verified["objects"]
+            or type(body.get("reserved_download_bytes")) is not int
+            or type(body.get("delivered_payload_bytes")) is not int
+            or body["reserved_download_bytes"]<body["delivered_payload_bytes"]
+            or body["delivered_payload_bytes"]<verified["bytes"]
+            or type(body.get("elapsed_seconds")) not in (int,float)
+            or not math.isfinite(body["elapsed_seconds"]) or body["elapsed_seconds"]<0):
+        raise ContractError("transfer completion accounting is incomplete")
+    return body
 
 
 def _validate_measurement(body,plan,release):
@@ -168,7 +206,7 @@ def _preflight(plan):
     else:
         try:
             if sha256_file(plan["transfer_manifest_path"])[0]!=plan["transfer_manifest_sha256"]:raise ContractError("changed")
-            transfer_members,objects,transfer_bytes,transfer_records,kind_summary=_transfer_summary(plan["transfer_manifest_path"])
+            transfer_members,objects,transfer_bytes,transfer_records,kind_summary,transfer_states=_transfer_summary(plan["transfer_manifest_path"])
             expected={f"{m['session_date']}/{m['symbol']}" for m in plan["members"]}
             if (transfer_members!=expected or objects!=plan.get("transfer_expected_objects") or transfer_bytes!=plan.get("transfer_expected_bytes")
                     or kind_summary!=plan.get("transfer_kind_summary")):
@@ -180,11 +218,12 @@ def _preflight(plan):
         try:
             body=read_json(completion["path"])
             if (set(completion)!={"path","sha256"} or sha256_file(completion["path"])[0]!=completion["sha256"]
-                    or body!={"version":"raw_migration_completion_v1","status":"complete","expected_members":plan["expected_members"],
-                        "manifest_sha256":plan.get("transfer_manifest_sha256"),"objects":plan.get("transfer_expected_objects"),
-                        "bytes":plan.get("transfer_expected_bytes"),"kind_summary":plan.get("transfer_kind_summary")}):
-                blockers.append("transfer_completion_mismatch")
-        except (KeyError,FileNotFoundError,ContractError):blockers.append("transfer_completion_mismatch")
+                    or transfer_records is None):
+                raise ContractError("transfer completion reference mismatch")
+            _validate_transfer_completion(body,plan.get("transfer_manifest_sha256"),
+                                          plan.get("transfer_expected_objects"),
+                                          plan.get("transfer_expected_bytes"),transfer_states)
+        except (KeyError,FileNotFoundError,TypeError,ContractError):blockers.append("transfer_completion_mismatch")
     if plan["unresolved_members"]:blockers.append(f"unresolved_admission:{len(plan['unresolved_members'])}")
     findings={x.get("member"):x for x in admissions.get("findings",[]) if type(x) is dict}
     if any(findings.get(f"{m['session_date']}/{m['symbol']}",{}).get("state")!="metadata_admitted" for m in plan["members"]):
@@ -208,9 +247,12 @@ def _preflight(plan):
             for member,streams in descriptor_objects.items():
                 for stream,declared in streams.items():
                     record=transfer_records[(member,stream)]
+                    retrieval_admitted=(declared.get("terminal_complete") is True
+                        or (declared.get("terminal_complete") is False
+                            and declared.get("retrieval_completeness")=="unverified_missing_original_vendor_pagination_receipts"))
                     if (record["key"]!=declared["path"] or record["relative_path"]!=declared["path"]
                             or record["sha256"]!=declared["sha256"] or record["size_bytes"]!=declared["bytes"]
-                            or record["rows"]!=declared["rows"] or declared["terminal_complete"] is not True):
+                            or record["rows"]!=declared["rows"] or not retrieval_admitted):
                         raise ContractError("transfer/source descriptor mismatch")
         except (KeyError,ContractError):blockers.append("transfer_object_identity_mismatch")
     decision=plan.get("readiness_decision");decision_body=None

@@ -1,6 +1,6 @@
 # Feature readiness checkpoint — 2026-09-14 Pacific
 
-The transfer is complete, but the full feature build is not ready for acceptance or execution. No full-corpus job was started. Phase 2/3 real-data acceptance remains pending.
+The transfer and the bounded KDP/NVDA base/default-feature acceptance are complete, but the full feature build is not ready for execution. No full-corpus job was started. Historical vendor retrieval completeness is recorded as unverified under the owner's accepted policy.
 
 ## Implemented performance improvement
 
@@ -35,18 +35,24 @@ Read-only inspection of the retained September 2 KDP/NVDA files, limited to the 
 
 Four read-only R2 HEAD checks contain row counts, hashes and window labels, but no terminal pagination receipts. Reference upload code hardcodes those labels; reference download code follows pagination, but code alone cannot establish that a particular retrieval completed. Original download completion receipts bound to the retained objects have not been recovered. No replacement download was performed.
 
+The accepted follow-up does not change that finding. Missing original pagination receipts are non-blocking for calculation of this existing historical corpus, but version 2 descriptors retain `terminal_complete=false` and record retrieval completeness as `unverified_missing_original_vendor_pagination_receipts`. File identity, schema, ordering, units, precision, halt context and numerical validation remain blocking checks.
+
 Recovered historical job-list/run-manifest hashes establish that KDP and NVDA were among the 245 members evaluated in the September 2 external halt bundle. The original Nasdaq acquisition succeeded and contained neither symbol. This supports empty historical external-only halt overlays for these two members; it does not validate inferred feed gaps or real-time availability. Small original evidence records were preserved privately, without introducing a legacy runtime dependency.
+
+## Bounded real-data result
+
+The installed base and default-feature builders processed exactly KDP and NVDA on 2026-09-02 for 720 seconds per member. The four build invocations took 4.435 seconds in total; peak sampled process-tree RSS was 177,831,936 bytes. The complete base/feature/support directories occupy 618,011 bytes. Independent reconstruction checked all 48 base, 51 feature and 37 support fields on every row. Base values matched exactly; the largest feature difference was `1.8190e-11`, and the largest support difference was `1.4211e-13`.
+
+The calculation preflight now parses the actual raw-migration completion record and reconciles its manifest hash, 14,306 objects, 47,204,810,169 bytes, 14,302 verified objects/47,090,531,533 bytes, and four reused objects/114,278,636 bytes against the immutable manifest. Focused tests cover successful reconciliation plus manifest, total, state and incomplete-record rejection.
 
 ## Remaining steps before a manual full run
 
-1. Recover identity-bound original retrieval completion evidence, or explicitly settle a revised historical-source admission policy. Do not infer complete observed time from transport completion or observed first/last timestamps.
-2. Integrate the real transfer completion format. The transfer writes `expected_objects`, `expected_bytes` and verified/reused `states`; calculation preflight currently expects a different exact-key aggregate record with `expected_members`, `objects`, `bytes` and `kind_summary`. Add a strictly validated adapter or parser with reconciliation against the immutable manifest and ledger; do not merely flip the old plan's transfer flag.
-3. Once admitted, execute the bounded KDP/NVDA production-path sample and independently reconstruct base, feature and support values. Keep synthetic evidence separate from representative measurement references.
-4. Profile the admitted path, measure longer member behavior and output compression, then project full runtime, memory and disk. Optimize further if necessary. Production multi-worker scheduling needs its own disjoint-member ownership, atomic output and ledger/restart tests before use.
-5. Generate a new immutable plan tied to the selected installed wheel, admitted members, real measurements and explicit readiness decision. Obtain the full-run confirmation required by AGENTS.md. The old 59d3abc plan remains blocked and must not be edited in place.
+1. Measure a separately approved representative busy full session to bound long-history throughput and compression. The quiet 04:00 prefix is valid correctness evidence, not a corpus runtime/storage forecast.
+2. If the five-hour target remains required, implement and test production multi-worker disjoint-member ownership, atomic outputs and ledger/restart behavior. This follow-up intentionally does not add it.
+3. Generate a new immutable plan tied to the selected installed wheel, corpus admission descriptors, real measurements and an explicit readiness decision. Obtain the full-run confirmation required by AGENTS.md. The old 59d3abc plan remains blocked and must not be edited in place.
 
 ## Private evidence and reproduction
 
-VM control records: `/srv/tape-data-product/control/feature-readiness-20260915/` (source inspection, recovered halt evidence, resource monitors, test log and `equivalence.json`). Synthetic outputs and wheel: `/srv/tape-data-product/scratch/feature-readiness-20260915/`. Installed benchmark release: `/opt/tape-data-product/releases/feature-readiness-d746f6c/venv`.
+Earlier VM control records remain under `/srv/tape-data-product/control/feature-readiness-20260915/`. The bounded real-data descriptors, admission report, measurements and independent comparison are under `/srv/tape-data-product/control/feature-readiness-real-dc54eeb/`; outputs are under `/srv/tape-data-product/scratch/feature-readiness-real-dc54eeb/`. Installed releases remain isolated and `/opt/tape-data-product/current` was not changed.
 
 Reproduction entry points are `scripts/readiness/benchmark_synthetic.py`, `inspect_sample.py` and `profile_synthetic.py`. Synthetic fixtures are explicitly supplied from this repository's tests. None of these benchmark results is an accepted real-data measurement, and this checkpoint does not complete Phase 2 or Phase 3 acceptance.
