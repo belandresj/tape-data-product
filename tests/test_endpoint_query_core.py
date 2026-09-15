@@ -1,3 +1,4 @@
+import hashlib
 import math
 
 import pyarrow as pa
@@ -163,6 +164,26 @@ def test_halt_and_selection_boundaries_close_and_censor_runs():
     ]
 
 
+def test_trade_predicate_ignores_quote_break_but_honors_trade_break():
+    selected = predicates(
+        [{"field": "trade_metric", "operator": ">", "value": 2}]
+    )
+    emitted = []
+    reducer = EndpointQueryReducer(selected, "query-trade", run_sink=emitted.append)
+    reducer.consume(row(0, 0, trade_metric=3, trade_metric_reason_mask=0))
+    reducer.consume(row(1, 0, trade_metric=3, trade_metric_reason_mask=0,
+                        quote_continuity_id=1,
+                        quote_continuity_break_in_second=True))
+    reducer.consume(row(2, 0, trade_metric=3, trade_metric_reason_mask=0,
+                        quote_continuity_id=1, trade_continuity_id=1,
+                        trade_continuity_break_in_second=True))
+    reducer.finish(RunBoundary("member_boundary", False))
+    assert [(item["match_count"], item["closure_reason"]) for item in emitted] == [
+        (2, "source_continuity"),
+        (1, "member_boundary"),
+    ]
+
+
 def test_member_accounting_distinguishes_no_eligible_and_valid_zero_match():
     reducer = EndpointQueryReducer(
         predicates(), "query-3",
@@ -321,3 +342,54 @@ def test_export_rejects_mismatched_identity_and_projection(tmp_path):
             tmp_path / "bad-schema", observation_schema=wrong_schema,
             descriptor=descriptor, identity=query_identity(descriptor),
         )
+
+
+def test_nonempty_export_values_runs_and_hashes_reproduce(tmp_path):
+    selected = predicates()
+    descriptor = query_descriptor(
+        reference_identity="ref",
+        selection={"version": "synthetic-selection-v1"},
+        predicates=selected,
+        display_fields=["display_metric"],
+        field_descriptors=DESCRIPTORS,
+        contract_identity="contract",
+        implementation_identity="implementation",
+    )
+    identity = query_identity(descriptor)
+    observation_schema = pa.schema([
+        pa.field("session_date", pa.string(), False),
+        pa.field("symbol", pa.string(), False),
+        pa.field("interval_end_ns", pa.int64(), False),
+        pa.field("quote_metric", pa.float64(), True),
+        pa.field("quote_metric_reason_mask", pa.uint16(), False),
+        pa.field("display_metric", pa.float64(), True),
+        pa.field("display_metric_reason_mask", pa.uint16(), False),
+    ])
+    export = EndpointQueryExport(
+        tmp_path / "nonempty", observation_schema=observation_schema,
+        descriptor=descriptor, identity=identity, buffer_rows=1,
+    )
+    reducer = EndpointQueryReducer(
+        selected, identity,
+        display_fields=("display_metric",),
+        display_reason_masks={"display_metric": "display_metric_reason_mask"},
+        observation_sink=export.add_observation,
+        run_sink=export.add_run,
+    )
+    reducer.consume(row(0, 3, display_metric=7, display_metric_reason_mask=0))
+    reducer.consume(row(1, 1, display_metric=None, display_metric_reason_mask=64))
+    receipt = export.finish(
+        reducer.finish(RunBoundary("member_boundary", False))
+    )
+    observations = pq.read_table(tmp_path / "nonempty/matching_observations.parquet")
+    runs = pq.read_table(tmp_path / "nonempty/strict_runs.parquet")
+    assert observations.to_pylist() == [{
+        "session_date": "2026-03-02", "symbol": "AAA",
+        "interval_end_ns": 1000 * NS, "quote_metric": 3.0,
+        "quote_metric_reason_mask": 0, "display_metric": 7.0,
+        "display_metric_reason_mask": 0,
+    }]
+    assert runs.to_pylist()[0]["represented_start_ns"] == 999 * NS
+    for name, artifact in receipt["artifacts"].items():
+        path = tmp_path / "nonempty" / artifact["path"]
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == artifact["sha256"], name
