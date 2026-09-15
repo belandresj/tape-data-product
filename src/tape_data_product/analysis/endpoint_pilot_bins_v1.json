@@ -1,0 +1,21 @@
+{
+  "schema": "endpoint_joint_bins_v1",
+  "status": "fixed_development_pilot_configuration",
+  "selection_note": "Fixed before checkpoint-C real-pilot inspection; exploratory pilot axes are not full-corpus evidence.",
+  "axes": {
+    "midpoint_rms_5s_bps": {"unit": "bps", "edges": [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000]},
+    "quoted_spread_bps": {"unit": "bps", "edges": [0.03, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000]},
+    "movement_participation": {"unit": "1", "edges": [0.01, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0]},
+    "trade_rate_per_second": {"unit": "trades/s", "edges": [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000]},
+    "bid_size_mean_shares": {"unit": "shares", "edges": [1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 30000, 100000]},
+    "ask_size_mean_shares": {"unit": "shares", "edges": [1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 30000, 100000]}
+  },
+  "required_panels": [
+    "RMS versus spread, matching views",
+    "RMS versus participation, matching views",
+    "trade rate versus spread, matching views",
+    "trade rate versus bid size, matching views",
+    "trade rate versus ask size, matching views",
+    "fast versus slow RMS, pair-valid endpoints"
+  ]
+}
