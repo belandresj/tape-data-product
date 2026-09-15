@@ -223,3 +223,7 @@ Phase 4 accepts only after A–D pass, an independent review resolves correctnes
 ### Specification review, 2026-09-15
 
 A bounded independent read-only review checked governing-contract consistency, sequential ownership and A's implementability. Incorporated both material findings: receipt eligibility uses the maximum of nominal discovery and receipt clocks, and A explicitly exposes source-specific continuity metadata needed by B. Local document links and whitespace checks passed. This is specification review, not implementation, pilot construction or data acceptance.
+
+### Checkpoint A reader handoff, 2026-09-15
+
+The identity-bound pilot reference, 27-field registry, explicit selection model and shared projected Arrow reader are implemented and installed. The reviewed handoff is recorded in [Phase 4 A completion](phase_4_a_completion.md). Checkpoints B–D and full Phase 4 acceptance remain pending.
