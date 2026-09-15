@@ -51,12 +51,20 @@ def query_descriptor(
     unknown = [name for name in display_fields if name not in descriptors]
     if unknown:
         raise ValueError(f"unknown display fields: {unknown}")
+    projection_names = tuple(dict.fromkeys((*predicates.names, *display_fields)))
     return {
         "version": QUERY_CONFIG_VERSION,
         "reference_identity": reference_identity,
         "selection": dict(selection),
         "predicates": predicates.to_dict(),
         "display_fields": list(display_fields),
+        "field_projection": [
+            {
+                "name": name,
+                "reason_mask": descriptors[name]["reason_mask"],
+            }
+            for name in projection_names
+        ],
         "predicate_dependencies": list(predicates.names),
         "required_sources": list(predicates.sources),
         "contract_identity": contract_identity,
@@ -145,6 +153,7 @@ class EndpointQueryReducer:
         identity: str,
         *,
         display_fields: Sequence[str] = (),
+        display_reason_masks: Mapping[str, str] | None = None,
         observation_sink: Callable[[dict], None] | None = None,
         run_sink: Callable[[dict], None] | None = None,
         planned_members: Iterable[tuple[str, str]] = (),
@@ -152,6 +161,12 @@ class EndpointQueryReducer:
         self.predicates = predicates
         self.identity = identity
         self.display_fields = tuple(display_fields)
+        self.display_reason_masks = dict(display_reason_masks or {})
+        if set(self.display_reason_masks) != set(self.display_fields) or any(
+            not isinstance(mask, str) or not mask
+            for mask in self.display_reason_masks.values()
+        ):
+            raise ValueError("display reason masks must map every display field")
         self.observation_sink = observation_sink
         self.run_sink = run_sink
         self.runs = StrictRunReducer(identity, predicates.sources)
@@ -190,6 +205,7 @@ class EndpointQueryReducer:
                 *self.predicates.names,
                 *self.predicates.reason_masks,
                 *self.display_fields,
+                *(self.display_reason_masks[name] for name in self.display_fields),
             )
             observation = {name: row[name] for name in dict.fromkeys(names)}
             self.observation_sink(observation)
@@ -251,5 +267,5 @@ class EndpointQueryReducer:
             ),
             "members": member_rows,
             "contributions": contributions,
-            "strict_run_count": len(self.runs.runs),
+            "strict_run_count": self.runs.run_count,
         }

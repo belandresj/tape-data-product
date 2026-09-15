@@ -12,6 +12,8 @@ from typing import Mapping
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .endpoint_query_core import query_identity
+
 
 MAX_BUFFER_ROWS = 4096
 
@@ -136,6 +138,16 @@ class EndpointQueryExport:
         buffer_rows: int = 4096,
     ):
         self.root = Path(root)
+        if identity != query_identity(descriptor):
+            raise ValueError("query identity does not match descriptor")
+        expected_names = ["session_date", "symbol", "interval_end_ns"]
+        for field in descriptor.get("field_projection", ()):
+            if not isinstance(field, Mapping) or set(field) != {"name", "reason_mask"}:
+                raise ValueError("query descriptor has malformed field projection")
+            expected_names.extend((field["name"], field["reason_mask"]))
+        expected_names = list(dict.fromkeys(expected_names))
+        if observation_schema.names != expected_names:
+            raise ValueError("observation schema does not match query projection")
         if self.root.exists():
             raise FileExistsError("query output is immutable")
         self.root.mkdir(parents=True)
@@ -157,8 +169,12 @@ class EndpointQueryExport:
         self.runs.add(row)
 
     def finish(self, summary: Mapping[str, object]) -> dict:
+        if summary.get("query_identity") != self.identity:
+            raise ValueError("summary query identity mismatch")
         observations = self.observations.close()
         runs = self.runs.close()
+        if runs["rows"] != summary.get("strict_run_count"):
+            raise ValueError("strict-run output count mismatch")
         members_path = self.root / "member_accounting.parquet"
         contributions_path = self.root / "symbol_date_contributions.parquet"
         pq.write_table(

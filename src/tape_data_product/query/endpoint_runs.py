@@ -54,7 +54,7 @@ class StrictRunReducer:
         self._previous = None
         self._preceding = RunBoundary("member_boundary", False)
         self._ordinal = 0
-        self.runs: list[StrictRun] = []
+        self.run_count = 0
 
     def _continuity(self, row: Mapping[str, object]) -> dict[str, int]:
         result = {}
@@ -97,7 +97,7 @@ class StrictRunReducer:
                 current["continuity"], sort_keys=True, separators=(",", ":")
             ),
         )
-        self.runs.append(run)
+        self.run_count += 1
         self._ordinal += 1
         self._current = None
         self._preceding = boundary
@@ -202,6 +202,5 @@ class StrictRunReducer:
         return tuple(emitted)
 
     def finish(self, boundary: RunBoundary | None = None) -> tuple[StrictRun, ...]:
-        before = len(self.runs)
-        self._close(boundary or RunBoundary("selection_boundary", True))
-        return tuple(self.runs[before:])
+        run = self._close(boundary or RunBoundary("selection_boundary", True))
+        return () if run is None else (run,)

@@ -256,6 +256,7 @@ def test_empty_export_retains_schemas_and_complete_accounting(tmp_path):
     )
     reducer = EndpointQueryReducer(
         selected, identity,
+        display_reason_masks={},
         observation_sink=export.add_observation,
         run_sink=export.add_run,
         planned_members=(("2026-03-02", "NONE"),),
@@ -269,3 +270,54 @@ def test_empty_export_retains_schemas_and_complete_accounting(tmp_path):
     assert pq.read_table(tmp_path / "query/strict_runs.parquet").num_rows == 0
     accounting = pq.read_table(tmp_path / "query/member_accounting.parquet").to_pylist()
     assert accounting[0]["eligibility_class"] == "no_eligible_rows"
+
+
+def test_display_export_includes_reason_mask_without_changing_eligibility():
+    observations = []
+    selected = predicates()
+    reducer = EndpointQueryReducer(
+        selected,
+        "query-display",
+        display_fields=("display_metric",),
+        display_reason_masks={"display_metric": "display_metric_reason_mask"},
+        observation_sink=observations.append,
+    )
+    reducer.consume(row(0, 3, display_metric=None, display_metric_reason_mask=64))
+    reducer.finish(RunBoundary("member_boundary", False))
+    assert observations == [{
+        "session_date": "2026-03-02",
+        "symbol": "AAA",
+        "interval_end_ns": 1000 * NS,
+        "quote_metric": 3,
+        "quote_metric_reason_mask": 0,
+        "display_metric": None,
+        "display_metric_reason_mask": 64,
+    }]
+
+
+def test_export_rejects_mismatched_identity_and_projection(tmp_path):
+    selected = predicates()
+    descriptor = query_descriptor(
+        reference_identity="ref",
+        selection={"version": "synthetic-selection-v1"},
+        predicates=selected,
+        display_fields=[],
+        field_descriptors=DESCRIPTORS,
+        contract_identity="contract",
+        implementation_identity="implementation",
+    )
+    wrong_schema = pa.schema([
+        pa.field("session_date", pa.string(), False),
+        pa.field("symbol", pa.string(), False),
+        pa.field("interval_end_ns", pa.int64(), False),
+    ])
+    with pytest.raises(ValueError, match="identity"):
+        EndpointQueryExport(
+            tmp_path / "bad-identity", observation_schema=wrong_schema,
+            descriptor=descriptor, identity="wrong",
+        )
+    with pytest.raises(ValueError, match="schema"):
+        EndpointQueryExport(
+            tmp_path / "bad-schema", observation_schema=wrong_schema,
+            descriptor=descriptor, identity=query_identity(descriptor),
+        )
