@@ -8,6 +8,7 @@ import hashlib
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 
@@ -198,18 +199,37 @@ def _base_compatibility(pair, config, implementation):
     return {"descriptor": value, "sha256": digest(value)}
 
 
+def _evidence_identities(pair, context):
+    root=Path(pair["evidence_root"]);result={}
+    for stream in pair["streams"].values():
+        for path_key,hash_key in (("provenance_path","provenance_sha256"),("coverage_evidence_path","coverage_evidence_sha256")):
+            result[str((root/stream[path_key]).resolve())]=stream[hash_key]
+    units=pair["source_units"]
+    for path_key,hash_key in (("quote_size_evidence_path","quote_size_evidence_sha256"),("trade_quantity_evidence_path","trade_quantity_evidence_sha256")):
+        result[str((root/units[path_key]).resolve())]=units[hash_key]
+    for value in (context["halt_evidence"],context["continuity_evidence"],context["seed"]):
+        if "path" in value:result[str((root/value["path"]).resolve())]=value["sha256"]
+    return dict(sorted(result.items()))
+
+
+def _verify_evidence(identities):
+    for path,expected in identities.items():
+        if sha256_file(path)[0]!=expected:raise ContractError("source/control evidence changed during replay")
+
+
 def build_base_partition(source_pair, member_context, output, *, config=DEFAULT_CONFIG, batch_size=4096):
     integer(batch_size, "batch size", 1, 25000)
     if not isinstance(config, FeatureConfig): raise ContractError("invalid feature config")
     pair, context, root, units = load_member_descriptors(source_pair, member_context)
     source_pair_sha=sha256_file(source_pair)[0];member_context_sha=sha256_file(member_context)[0]
+    evidence_identities=_evidence_identities(pair,context);_verify_evidence(evidence_identities)
     output = Path(output)
     if (output / "manifest.json").exists():
         manifest = verify_base_partition(output)
         implementation = _implementation_identity()
         expected_inputs = {"source_pair_sha256":source_pair_sha,
                            "context_sha256":member_context_sha,
-                           "streams":pair["streams"]}
+                           "streams":pair["streams"],"evidence":evidence_identities}
         expected_compatibility = _base_compatibility(pair, config, implementation)
         if (manifest["member"] != {"symbol":pair["symbol"], "session_date":pair["session_date"]}
                 or manifest["coverage"] != context["coverage"]
@@ -236,11 +256,12 @@ def build_base_partition(source_pair, member_context, output, *, config=DEFAULT_
                        output_record(attempt/"context.json", rows=rows, schema_sha256=digest(context))]
             manifest = {"manifest_version":"tape_member_manifest_v1", "member":{"symbol":pair["symbol"],"session_date":pair["session_date"]},
                 "coverage":context["coverage"], "inputs":{"source_pair_sha256":source_pair_sha,"context_sha256":member_context_sha,
-                    "streams":pair["streams"]}, "source_units":pair["source_units"], "contract_identity":contract_identity(config),
+                    "streams":pair["streams"],"evidence":evidence_identities}, "source_units":pair["source_units"], "contract_identity":contract_identity(config),
                 "base_compatibility":_base_compatibility(pair, config, implementation), "implementation_identity":implementation,
                 "contract_config":config.to_dict(), "outputs":records, "validation":{"integrity":"passed","consumption":"consumption_verified","independent_reconstruction":"pending"}, "complete":True}
             write_atomic_json(attempt/"manifest.json", manifest)
             _verify_source(pair, root)
+            _verify_evidence(evidence_identities)
             if sha256_file(source_pair)[0]!=source_pair_sha or sha256_file(member_context)[0]!=member_context_sha:
                 raise ContractError("source/context descriptor changed during replay")
             verify_base_partition(attempt)
@@ -376,7 +397,11 @@ def verify_base_partition(root):
     if set(records)!={"base.parquet","context.json"}: raise ContractError("base companions missing")
     context_path=verify_output(root,records["context.json"]);context=read_json(context_path)
     stored_config=FeatureConfig.from_dict(manifest["contract_config"])
-    if (context["member"]!=f'{manifest["member"]["session_date"]}/{manifest["member"]["symbol"]}'
+    evidence=manifest["inputs"].get("evidence") if type(manifest["inputs"]) is dict else None
+    if (set(manifest["inputs"])!={"source_pair_sha256","context_sha256","streams","evidence"}
+            or type(evidence) is not dict or not evidence
+            or any(type(path) is not str or type(value) is not str or not re.fullmatch(r"[0-9a-f]{64}",value) for path,value in evidence.items())
+            or context["member"]!=f'{manifest["member"]["session_date"]}/{manifest["member"]["symbol"]}'
             or context["coverage"]!=manifest["coverage"]
             or manifest["contract_identity"]!=contract_identity(stored_config)
             or records["context.json"]["schema_sha256"]!=digest(context)

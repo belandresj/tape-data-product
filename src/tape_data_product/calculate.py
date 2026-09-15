@@ -7,6 +7,7 @@ import sqlite3
 import sys
 import time
 import math
+import fcntl
 from pathlib import Path
 
 from .contracts import DEFAULT_CONFIG, contract_identity
@@ -33,11 +34,13 @@ def create_plan(inventory_path,admissions_path,config_path,limits_path,output):
           "limits":limits,"members":members,"expected_members":len(members),"unresolved_members":unresolved,"transfer_complete":bool(inventory.get("transfer_complete",False)),
           "admitted_index_path":str(index_path.resolve()),"admitted_index_sha256":sha256_file(index_path)[0],"admitted_members":len(members)-len(unresolved),
           "measurement_references":inventory.get("measurement_references",[]),"transfer_completion":inventory.get("transfer_completion"),
+          "readiness_decision":inventory.get("readiness_decision"),
           "transfer_manifest_path":inventory.get("transfer_manifest_path"),"transfer_manifest_sha256":inventory.get("transfer_manifest_sha256"),
           "transfer_expected_objects":inventory.get("transfer_expected_objects"),"transfer_expected_bytes":inventory.get("transfer_expected_bytes"),
+          "transfer_kind_summary":inventory.get("transfer_kind_summary"),
           "release":inventory.get("release"),"base_root":inventory.get("base_root"),"feature_root":inventory.get("feature_root"),"ledger_path":inventory.get("ledger_path")}
     write_atomic_json(output/"plan.json",plan);sha=sha256_file(output/"plan.json")[0]
-    return {"plan":str((output/"plan.json").resolve()),"sha256":sha,"members":len(members),"unresolved":len(unresolved),"ready":not unresolved and plan["transfer_complete"] and bool(plan["transfer_completion"]) and bool(plan["measurement_references"])}
+    return {"plan":str((output/"plan.json").resolve()),"sha256":sha,"members":len(members),"unresolved":len(unresolved),"ready":not unresolved and plan["transfer_complete"] and bool(plan["transfer_completion"]) and bool(plan["measurement_references"]) and bool(plan["readiness_decision"])}
 
 
 def _nearest_existing(path):
@@ -57,64 +60,88 @@ def _transfer_summary(path):
     replace the intended object while preserving member/object/byte totals.
     """
     members={};records={};keys=set();paths=set();objects=bytes_total=0
+    kind_summary={kind:{"objects":0,"bytes":0} for kind in ("canonical_tq","discovery_reference","halt_support")}
     with Path(path).open() as handle:
         for line in handle:
             if not line.strip():continue
             record=json.loads(line)
-            if record.get("kind")!="canonical_tq":continue
-            day=record.get("session_date");symbol=record.get("symbol");stream=record.get("stream")
-            member=f"{day}/{symbol}"
+            kind=record.get("kind")
+            if kind not in kind_summary:raise ContractError("unknown transfer object kind")
+            day=record.get("session_date");symbol=record.get("symbol");stream=record.get("stream");member=f"{day}/{symbol}"
             if (set(record)!=TRANSFER_FIELDS or record.get("version")!="raw_migration_object_v1"
-                    or stream not in ("quotes","trades") or record.get("verify_mode")!="tq_parquet_sip_order"
                     or type(record.get("key")) is not str or type(record.get("relative_path")) is not str
-                    or record["key"]!=record["relative_path"] or Path(record["key"]).is_absolute()
-                    or ".." in Path(record["key"]).parts
+                    or Path(record["key"]).is_absolute() or Path(record["relative_path"]).is_absolute()
+                    or ".." in Path(record["key"]).parts or ".." in Path(record["relative_path"]).parts
                     or type(record.get("sha256")) is not str or not re.fullmatch(r"[0-9a-f]{64}",record["sha256"])
                     or type(record.get("size_bytes")) is not int or record["size_bytes"]<0
-                    or type(record.get("rows")) is not int or record["rows"]<0
                     or record.get("reuse_path") is not None and type(record["reuse_path"]) is not str):
                 raise ContractError("malformed transfer inventory")
-            object_id=(member,stream)
-            if object_id in records or record["key"] in keys or record["relative_path"] in paths:
+            if record["key"] in keys or record["relative_path"] in paths:
                 raise ContractError("duplicate transfer object/stream")
-            records[object_id]=record;keys.add(record["key"]);paths.add(record["relative_path"])
-            key=(day,symbol);members.setdefault(key,set()).add(stream);objects+=1;bytes_total+=record["size_bytes"]
+            keys.add(record["key"]);paths.add(record["relative_path"]);objects+=1;bytes_total+=record["size_bytes"]
+            kind_summary[kind]["objects"]+=1;kind_summary[kind]["bytes"]+=record["size_bytes"]
+            if kind=="canonical_tq":
+                if (stream not in ("quotes","trades") or record.get("verify_mode")!="tq_parquet_sip_order"
+                        or record["key"]!=record["relative_path"] or type(record.get("rows")) is not int or record["rows"]<0):
+                    raise ContractError("malformed canonical transfer object")
+                object_id=(member,stream)
+                if object_id in records:raise ContractError("duplicate transfer object/stream")
+                records[object_id]=record;key=(day,symbol);members.setdefault(key,set()).add(stream)
+            elif kind=="discovery_reference":
+                if (day is not None or symbol is not None or stream is not None or record["verify_mode"]!="parquet_rows"
+                        or type(record.get("rows")) is not int or record["rows"]<0):raise ContractError("malformed discovery reference")
+            elif (day is not None or symbol is not None or stream is not None or record["verify_mode"]!="bytes"
+                    or record.get("rows") is not None):raise ContractError("malformed halt support")
     paired={f"{d}/{s}" for (d,s),streams in members.items() if streams=={"quotes","trades"}}
     if any(streams!={"quotes","trades"} for streams in members.values()):raise ContractError("unpaired transfer member")
-    return paired,objects,bytes_total,records
+    return paired,objects,bytes_total,records,kind_summary
 
 
 def _validate_measurement(body,plan,release):
-    fields={"version","status","kind","source_revision","wheel_sha256","config_sha256",
-            "sample","rows","read_bytes","peak_rss_bytes","wall_seconds","disk_bytes"}
+    fields={"version","status","kind","measurement_id","source_revision","wheel_sha256","config_sha256",
+            "sample","rows","artifacts","phases","independent_reconstruction","readiness_decision_sha256"}
     if (type(body) is not dict or set(body)!=fields
             or body["version"]!="tape_representative_measurement_v1"
             or body["status"]!="accepted" or body["kind"]!="representative_measurement"
             or body["source_revision"]!=release.get("source_revision")
             or body["wheel_sha256"]!=release.get("wheel_sha256")
-            or body["config_sha256"]!=digest(plan["config"])):
+            or body["config_sha256"]!=digest(plan["config"])
+            or type(body["measurement_id"]) is not str or not re.fullmatch(r"[0-9a-f]{64}",body["measurement_id"])
+            or type(body["readiness_decision_sha256"]) is not str or not re.fullmatch(r"[0-9a-f]{64}",body["readiness_decision_sha256"])):
         raise ContractError("measurement identity")
     sample=body["sample"]
-    if (type(sample) is not dict or set(sample)!={"members","coverage_seconds"}
-            or type(sample["members"]) is not list or not sample["members"]
-            or any(type(x) is not str or not re.fullmatch(r"\d{4}-\d{2}-\d{2}/[A-Z0-9][A-Z0-9._-]{0,31}",x) for x in sample["members"])
-            or len(set(sample["members"]))!=len(sample["members"])
-            or type(sample["coverage_seconds"]) is not int or sample["coverage_seconds"]<=0):
+    if (sample!={"members":["2026-09-02/KDP","2026-09-02/NVDA"],"coverage_seconds_per_member":720}):
         raise ContractError("measurement sample")
     rows=body["rows"]
     if (type(rows) is not dict or set(rows)!={"base","features","support"}
-            or any(type(rows[x]) is not int or rows[x]<=0 for x in rows)
-            or rows["base"]!=rows["features"] or rows["base"]!=rows["support"]):
+            or rows!={"base":1440,"features":1440,"support":1440}):
         raise ContractError("measurement rows")
-    disk=body["disk_bytes"]
-    if (type(disk) is not dict or set(disk)!={"base","features","scratch_peak"}
-            or any(type(disk[x]) is not int or disk[x]<0 for x in disk)):
-        raise ContractError("measurement disk")
-    if (type(body["read_bytes"]) is not int or body["read_bytes"]<=0
-            or type(body["peak_rss_bytes"]) is not int or body["peak_rss_bytes"]<=0
-            or type(body["wall_seconds"]) not in (int,float) or not math.isfinite(body["wall_seconds"])
-            or body["wall_seconds"]<=0):
-        raise ContractError("measurement resources")
+    if body["independent_reconstruction"]!={"base_all_fields":"passed","features_explicit_histories":"passed","support_all_fields":"passed"}:
+        raise ContractError("measurement independent reconstruction")
+    artifacts=body["artifacts"]
+    if type(artifacts) is not list or any(type(x) is not dict for x in artifacts) or [x.get("member") for x in artifacts] != sample["members"]:
+        raise ContractError("measurement artifacts")
+    for artifact in artifacts:
+        if (set(artifact)!={"member","source_pair_sha256","context_sha256","base_manifest_sha256","feature_manifest_sha256","rows"}
+                or artifact["rows"]!=720
+                or any(type(artifact[x]) is not str or not re.fullmatch(r"[0-9a-f]{64}",artifact[x]) for x in
+                       ("source_pair_sha256","context_sha256","base_manifest_sha256","feature_manifest_sha256"))):
+            raise ContractError("measurement artifacts")
+    phases=body["phases"]
+    if type(phases) is not dict or set(phases)!={"build","verification"}:raise ContractError("measurement phases")
+    for phase in phases.values():
+        if type(phase) is not dict or set(phase)!={"read_bytes","peak_rss_bytes","wall_seconds","disk_bytes","guards"}:raise ContractError("measurement phase")
+        disk=phase["disk_bytes"];guards=phase["guards"]
+        if (type(disk) is not dict or set(disk)!={"output","scratch_peak"} or any(type(disk[x]) is not int or disk[x]<0 for x in disk)
+                or type(phase["read_bytes"]) is not int or phase["read_bytes"]<=0
+                or type(phase["peak_rss_bytes"]) is not int or phase["peak_rss_bytes"]<=0
+                or type(phase["wall_seconds"]) not in (int,float) or not math.isfinite(phase["wall_seconds"]) or phase["wall_seconds"]<=0
+                or guards!={"workers":1,"threads":1,"batch_size":4096,"cpu_quota_percent":200,"tasks_max":64,
+                    "memory_max_bytes":1610612736,"memory_swap_max_bytes":0,"process_tree_rss_stop_bytes":1073741824,
+                    "runtime_max_seconds":600,"read_limit_bytes":1073741824,"scratch_limit_bytes":2147483648,
+                    "max_decoded_raw_rows":2000000}
+                or guards["read_limit_bytes"]<phase["read_bytes"] or guards["scratch_limit_bytes"]<phase["disk_bytes"]["scratch_peak"]):
+            raise ContractError("measurement resources/guards")
 
 
 def _preflight(plan):
@@ -132,9 +159,10 @@ def _preflight(plan):
     else:
         try:
             if sha256_file(plan["transfer_manifest_path"])[0]!=plan["transfer_manifest_sha256"]:raise ContractError("changed")
-            transfer_members,objects,transfer_bytes,transfer_records=_transfer_summary(plan["transfer_manifest_path"])
+            transfer_members,objects,transfer_bytes,transfer_records,kind_summary=_transfer_summary(plan["transfer_manifest_path"])
             expected={f"{m['session_date']}/{m['symbol']}" for m in plan["members"]}
-            if (transfer_members!=expected or objects!=plan.get("transfer_expected_objects") or transfer_bytes!=plan.get("transfer_expected_bytes")):
+            if (transfer_members!=expected or objects!=plan.get("transfer_expected_objects") or transfer_bytes!=plan.get("transfer_expected_bytes")
+                    or kind_summary!=plan.get("transfer_kind_summary")):
                 blockers.append("transfer_inventory_reconciliation_failed")
         except (OSError,ValueError,ContractError,json.JSONDecodeError):blockers.append("transfer_inventory_reconciliation_failed")
     if not completion:
@@ -143,7 +171,9 @@ def _preflight(plan):
         try:
             body=read_json(completion["path"])
             if (set(completion)!={"path","sha256"} or sha256_file(completion["path"])[0]!=completion["sha256"]
-                    or body!={"status":"complete","expected_members":plan["expected_members"],"manifest_sha256":plan.get("transfer_manifest_sha256"),"objects":plan.get("transfer_expected_objects"),"bytes":plan.get("transfer_expected_bytes")}):
+                    or body!={"version":"raw_migration_completion_v1","status":"complete","expected_members":plan["expected_members"],
+                        "manifest_sha256":plan.get("transfer_manifest_sha256"),"objects":plan.get("transfer_expected_objects"),
+                        "bytes":plan.get("transfer_expected_bytes"),"kind_summary":plan.get("transfer_kind_summary")}):
                 blockers.append("transfer_completion_mismatch")
         except (KeyError,FileNotFoundError,ContractError):blockers.append("transfer_completion_mismatch")
     if plan["unresolved_members"]:blockers.append(f"unresolved_admission:{len(plan['unresolved_members'])}")
@@ -174,12 +204,32 @@ def _preflight(plan):
                             or record["rows"]!=declared["rows"] or declared["terminal_complete"] is not True):
                         raise ContractError("transfer/source descriptor mismatch")
         except (KeyError,ContractError):blockers.append("transfer_object_identity_mismatch")
+    decision=plan.get("readiness_decision");decision_body=None
+    if not decision:blockers.append("reviewed_readiness_decision_missing")
+    else:
+        try:
+            decision_body=read_json(decision["path"])
+            if (set(decision)!={"path","sha256"} or sha256_file(decision["path"])[0]!=decision["sha256"]
+                    or set(decision_body)!={"version","status","population_sha256","expected_members","source_revision","wheel_sha256","config_sha256","measurement_ids"}
+                    or decision_body["version"]!="tape_representativeness_decision_v1" or decision_body["status"]!="reviewed_accepted"
+                    or decision_body["population_sha256"]!=digest(plan["members"]) or decision_body["expected_members"]!=plan["expected_members"]
+                    or decision_body["source_revision"]!=(plan.get("release") or {}).get("source_revision")
+                    or decision_body["wheel_sha256"]!=(plan.get("release") or {}).get("wheel_sha256")
+                    or decision_body["config_sha256"]!=digest(plan["config"])
+                    or type(decision_body["measurement_ids"]) is not list or not decision_body["measurement_ids"]
+                    or any(type(x) is not str or not re.fullmatch(r"[0-9a-f]{64}",x) for x in decision_body["measurement_ids"])):
+                raise ContractError("decision")
+        except (KeyError,TypeError,OSError,ContractError):blockers.append("reviewed_readiness_decision_identity_mismatch")
     if not plan["measurement_references"]:blockers.append("representative_measurement_missing")
     else:
         try:
+            measurement_ids=[]
             for reference in plan["measurement_references"]:
                 if set(reference)!={"path","sha256"} or sha256_file(reference["path"])[0]!=reference["sha256"]:raise ContractError("measurement")
-                _validate_measurement(read_json(reference["path"]),plan,plan.get("release") or {})
+                body=read_json(reference["path"]);_validate_measurement(body,plan,plan.get("release") or {})
+                if decision is None or body["readiness_decision_sha256"]!=decision["sha256"]:raise ContractError("measurement decision")
+                measurement_ids.append(body["measurement_id"])
+            if decision_body is None or measurement_ids!=decision_body["measurement_ids"]:raise ContractError("measurement decision set")
         except (KeyError,TypeError,OSError,ContractError):blockers.append("representative_measurement_identity_mismatch")
     release=plan.get("release") or {}
     expected_release={"source_revision","wheel_path","wheel_sha256","executable","contract_identity","base_implementation_identity","feature_implementation_identity"}
@@ -213,7 +263,7 @@ def _preflight(plan):
             if path.exists() and any(path.iterdir()) and not (path/"manifest.json").is_file():blockers.append(f"conflicting_incomplete_output:{member['session_date']}/{member['symbol']}:{root_name}")
     return blockers,descriptors
 
-def run_plan(plan_path,expected):
+def _run_plan_locked(plan_path,expected):
     sha=sha256_file(plan_path)[0]
     if sha!=expected:raise ContractError("plan identity mismatch")
     plan=read_json(plan_path)
@@ -242,6 +292,15 @@ def run_plan(plan_path,expected):
                 raise
     finally:connection.close()
     return {"status":"complete","members":completed,"ledger":str(ledger_path),"plan_sha256":sha}
+
+
+def run_plan(plan_path,expected):
+    """Hold a nonblocking plan lock across preflight and the complete ledger run."""
+    plan_path=Path(plan_path).resolve();lock_path=plan_path.parent/f".{plan_path.name}.run.lock"
+    with lock_path.open("a+b") as lock:
+        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError as error:raise ContractError("calculation plan already running") from error
+        return _run_plan_locked(plan_path,expected)
 
 def register_commands(commands):
     calculate=commands.add_parser("calculate",help="Prepare or manually run immutable calculation plans").add_subparsers(dest="calculate_command",required=True)
