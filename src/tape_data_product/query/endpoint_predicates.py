@@ -21,7 +21,10 @@ _RANGE_KEYS = frozenset(
 def _finite_number(value: object, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{label} must be a finite numeric value")
-    result = float(value)
+    try:
+        result = float(value)
+    except (OverflowError, ValueError) as error:
+        raise ValueError(f"{label} must be finite") from error
     if not math.isfinite(result):
         raise ValueError(f"{label} must be finite")
     return 0.0 if result == 0.0 else result
@@ -194,14 +197,13 @@ def compile_predicates(
         raise ValueError("predicates must be a nonempty sequence")
     descriptors = _descriptor_map(field_descriptors)
     bounds_by_field: dict[str, dict] = {}
-    first_order: dict[str, int] = {}
+    descriptor_order = {name: index for index, name in enumerate(descriptors)}
     for index, raw in enumerate(predicates):
         if not isinstance(raw, Mapping) or set(raw) - _PREDICATE_KEYS:
             raise ValueError("malformed predicate")
         field = raw.get("field")
         if field not in descriptors:
             raise ValueError(f"unknown predicate field {field!r}")
-        first_order.setdefault(field, index)
         bounds = bounds_by_field.setdefault(field, _empty_bounds())
         has_comparison = "operator" in raw or "value" in raw
         has_range = "range" in raw
@@ -244,7 +246,7 @@ def compile_predicates(
                 raise ValueError(f"{field} range must have an endpoint")
         _validate_nonempty(bounds, field)
     fields = []
-    for name in sorted(bounds_by_field, key=first_order.get):
+    for name in sorted(bounds_by_field, key=descriptor_order.get):
         descriptor = descriptors[name]
         bounds = bounds_by_field[name]
         fields.append(

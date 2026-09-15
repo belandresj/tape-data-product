@@ -70,9 +70,20 @@ def test_predicate_boundaries_equality_intersection_and_validation():
     assert exact.to_dict()["conjunction"][0]["lower"] == 2.0
     assert exact.to_dict()["conjunction"][0]["upper"] == 2.0
 
+    reordered = predicates([
+        {"field": "trade_metric", "operator": "<", "value": 5},
+        {"field": "quote_metric", "operator": ">=", "value": 2},
+    ])
+    canonical = predicates([
+        {"field": "quote_metric", "operator": ">=", "value": 2},
+        {"field": "trade_metric", "operator": "<", "value": 5},
+    ])
+    assert reordered.identity == canonical.identity
+
     bad = [
         [{"field": "missing", "operator": ">", "value": 0}],
         [{"field": "quote_metric", "operator": ">", "value": math.inf}],
+        [{"field": "quote_metric", "operator": ">", "value": 10**1000}],
         [
             {"field": "quote_metric", "operator": ">", "value": 2},
             {"field": "quote_metric", "operator": "<=", "value": 2},
