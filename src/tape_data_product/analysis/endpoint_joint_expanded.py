@@ -498,7 +498,11 @@ def run(args: argparse.Namespace) -> dict:
             batches += 1
             accumulator.add(batch)
         scan_wall = time.perf_counter() - scan_started
-        _require(rows == 1_382_400, "fixed pilot row count mismatch")
+        expected_rows = handle.manifest["members"]["rows_per_table"]
+        expected_members = handle.manifest["members"]["count"]
+        _require(rows == expected_rows, "reference row count mismatch")
+        if args.expected_members is not None:
+            _require(expected_members == args.expected_members, "reference member count mismatch")
         summaries, histogram_rows, gate_rows = accumulator.finish()
         pq.write_table(pa.Table.from_pylist(histogram_rows), output / "histogram_counts.parquet", compression="zstd")
         pq.write_table(pa.Table.from_pylist(accumulator.member_gate_rows), output / "member_gate_accounting.parquet", compression="zstd")
@@ -521,7 +525,9 @@ def run(args: argparse.Namespace) -> dict:
             artifacts.append({"path": path.name, "bytes": path.stat().st_size, "sha256": _sha256(path)})
     metadata = {
         "schema": "endpoint_joint_expanded_run_v1",
-        "status": "expanded_activity_pilot_not_full_universe",
+        "status": "expanded_activity_bounded_reference_not_full_universe",
+        "reference_kind": handle.manifest["reference_kind"],
+        "members": expected_members,
         "reference_identity": args.reference_identity,
         "represented_rows": rows,
         "projected_fields": list(EXPANDED_FIELDS),
@@ -562,6 +568,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--base-root", required=True)
     result.add_argument("--features-root", required=True)
     result.add_argument("--output", required=True)
+    result.add_argument("--expected-members", type=int)
     result.add_argument("--cache-state", default="uncontrolled shared OS cache; not labeled cold")
     result.add_argument("--rss-stop-bytes", type=int, default=2 * 1024**3)
     return result

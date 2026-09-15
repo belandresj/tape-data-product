@@ -1,6 +1,7 @@
 """Literal activity gate, band, session, and restart checks."""
 import numpy as np
 import pyarrow as pa
+import random
 
 from tape_data_product.analysis.endpoint_joint_expanded import (
     EXPANDED_FIELDS,
@@ -8,6 +9,7 @@ from tape_data_product.analysis.endpoint_joint_expanded import (
     activity_band_ids,
     activity_gate,
 )
+from tape_data_product.query.endpoint_release import select_scaling_members
 
 
 def test_activity_band_boundaries_and_unavailable():
@@ -114,3 +116,38 @@ def test_expanded_accumulator_is_batch_invariant(tmp_path):
     for key in whole.states:
         assert whole.states[key].summary() == divided.states[key].summary()
         np.testing.assert_array_equal(whole.states[key].counts, divided.states[key].counts)
+
+
+def test_scaling_selection_is_feature_blind_deterministic_and_balanced():
+    records = []
+    for month in range(3, 9):
+        for index in range(40):
+            records.append(
+                {
+                    "session_date": f"2026-{month:02d}-{index % 20 + 1:02d}",
+                    "symbol": f"M{month:02d}S{index:02d}",
+                    "event_count": index,
+                    "source_pair_sha256": f"source-{month}-{index}",
+                    "context_sha256": f"context-{month}-{index}",
+                    "ledger_base_manifest": f"base-{month}-{index}",
+                    "ledger_feature_manifest": f"feature-{month}-{index}",
+                    "ignored_feature_value": 1_000_000 - index,
+                }
+            )
+    expected = select_scaling_members(records)
+    shuffled = list(records)
+    random.Random(17).shuffle(shuffled)
+    actual = select_scaling_members(shuffled)
+    assert actual == expected
+    assert len(actual) == 120
+    assert len({(row["session_date"], row["symbol"]) for row in actual}) == 120
+    assert len({row["symbol"] for row in actual}) == 120
+    assert [
+        (row["month"], row["stratum"], row["cell_index"])
+        for row in actual
+    ] == [
+        (f"2026-{month:02d}", stratum, cell_index)
+        for month in range(3, 9)
+        for stratum in range(4)
+        for cell_index in range(5)
+    ]
