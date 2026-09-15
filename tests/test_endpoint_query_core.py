@@ -285,14 +285,15 @@ def test_empty_export_retains_schemas_and_complete_accounting(tmp_path):
     observation_schema = OBSERVATION_SCHEMA
     export = EndpointQueryExport(
         tmp_path / "query", observation_schema=observation_schema,
-        descriptor=descriptor, identity=identity, buffer_rows=1,
+        descriptor=descriptor, identity=identity,
+        planned_members=(("2026-03-02", "NONE"),), buffer_rows=1,
     )
     reducer = EndpointQueryReducer(
         selected, identity,
         display_reason_masks={},
         observation_sink=export.add_observation,
         run_sink=export.add_run,
-        planned_members=(("2026-03-02", "NONE"),),
+        accounting_store=export.accounting,
     )
     reducer.consume(row(0, None, mask=8, symbol="NONE"))
     summary = reducer.finish(RunBoundary("member_boundary", False))
@@ -391,6 +392,7 @@ def test_nonempty_export_values_runs_and_hashes_reproduce(tmp_path):
         selected, identity,
         display_fields=("display_metric",),
         display_reason_masks={"display_metric": "display_metric_reason_mask"},
+        accounting_store=export.accounting,
         observation_sink=export.add_observation,
         run_sink=export.add_run,
     )

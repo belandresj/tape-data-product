@@ -6,13 +6,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 from typing import Mapping
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .endpoint_query_core import query_identity
+from .endpoint_query_core import MemberAccounting, query_identity
 
 
 MAX_BUFFER_ROWS = 4096
@@ -91,6 +92,88 @@ def _atomic_json(path: Path, value: object) -> None:
         temporary.unlink(missing_ok=True)
 
 
+class SQLiteAccountingStore:
+    """Disk-backed member totals with only the current member resident."""
+
+    def __init__(self, path: Path, planned_members=()):
+        self.path = Path(path)
+        self.connection = sqlite3.connect(self.path)
+        self.connection.execute("pragma journal_mode=delete")
+        self.connection.execute("pragma synchronous=full")
+        self.connection.execute(
+            """create table member_accounting (
+            session_date text not null,
+            symbol text not null,
+            selected integer not null,
+            eligible integer not null,
+            matching integer not null,
+            nonmatching integer not null,
+            unavailable integer not null,
+            primary key(session_date,symbol))"""
+        )
+        self.connection.executemany(
+            "insert into member_accounting values (?,?,0,0,0,0,0)",
+            tuple(planned_members),
+        )
+        self._current: MemberAccounting | None = None
+        self.closed = False
+
+    def _flush(self) -> None:
+        if self._current is None:
+            return
+        row = self._current
+        row.validate()
+        self.connection.execute(
+            """insert into member_accounting values (?,?,?,?,?,?,?)
+            on conflict(session_date,symbol) do update set
+              selected=selected+excluded.selected,
+              eligible=eligible+excluded.eligible,
+              matching=matching+excluded.matching,
+              nonmatching=nonmatching+excluded.nonmatching,
+              unavailable=unavailable+excluded.unavailable""",
+            (
+                row.session_date,
+                row.symbol,
+                row.selected,
+                row.eligible,
+                row.matching,
+                row.nonmatching,
+                row.unavailable,
+            ),
+        )
+        self._current = None
+
+    def add(self, session_date: str, symbol: str, status: str) -> None:
+        if self.closed:
+            raise ValueError("accounting store is closed")
+        if self._current is None or (
+            self._current.session_date, self._current.symbol
+        ) != (session_date, symbol):
+            self._flush()
+            self._current = MemberAccounting(session_date, symbol)
+        self._current.add(status)
+
+    def finish(self) -> list[dict]:
+        if self.closed:
+            raise ValueError("accounting store is closed")
+        self._flush()
+        self.connection.commit()
+        rows = self.connection.execute(
+            """select session_date,symbol,selected,eligible,matching,
+                      nonmatching,unavailable
+               from member_accounting order by session_date,symbol"""
+        )
+        return [MemberAccounting(*row).to_dict() for row in rows]
+
+    def close(self) -> dict:
+        if not self.closed:
+            self._flush()
+            self.connection.commit()
+            self.connection.close()
+            self.closed = True
+        return _identity(self.path)
+
+
 class StreamingParquetWriter:
     """Writes an explicit schema even when no rows are emitted."""
 
@@ -135,6 +218,7 @@ class EndpointQueryExport:
         observation_schema: pa.Schema,
         descriptor: Mapping[str, object],
         identity: str,
+        planned_members=(),
         buffer_rows: int = 4096,
     ):
         self.root = Path(root)
@@ -155,6 +239,9 @@ class EndpointQueryExport:
         self.root.mkdir(parents=True)
         self.descriptor = dict(descriptor)
         self.identity = identity
+        self.accounting = SQLiteAccountingStore(
+            self.root / "member_accounting.sqlite", planned_members
+        )
         self.observations = StreamingParquetWriter(
             self.root / "matching_observations.parquet", observation_schema,
             buffer_rows=buffer_rows,
@@ -184,6 +271,7 @@ class EndpointQueryExport:
             members_path,
             compression="zstd",
         )
+        accounting_database = self.accounting.close()
         pq.write_table(
             pa.Table.from_pylist(summary["contributions"], schema=CONTRIBUTION_SCHEMA),
             contributions_path,
@@ -211,6 +299,7 @@ class EndpointQueryExport:
                     "rows": len(summary["contributions"]),
                     "schema_sha256": schema_hash(CONTRIBUTION_SCHEMA),
                 },
+                "member_accounting_database": accounting_database,
             },
             "complete": True,
         }

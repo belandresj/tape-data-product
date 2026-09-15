@@ -152,6 +152,24 @@ class MemberAccounting:
         }
 
 
+class MemoryAccountingStore:
+    """Fixture-oriented accounting; production exports use the SQLite store."""
+
+    def __init__(self, planned_members: Iterable[tuple[str, str]] = ()):
+        self.members = {
+            (day, symbol): MemberAccounting(day, symbol)
+            for day, symbol in planned_members
+        }
+
+    def add(self, session_date: str, symbol: str, status: str) -> None:
+        self.members.setdefault(
+            (session_date, symbol), MemberAccounting(session_date, symbol)
+        ).add(status)
+
+    def finish(self) -> list[dict]:
+        return [self.members[key].to_dict() for key in sorted(self.members)]
+
+
 class EndpointQueryReducer:
     """Consumes row mappings while retaining only run and member aggregate state."""
 
@@ -165,6 +183,7 @@ class EndpointQueryReducer:
         observation_sink: Callable[[dict], None] | None = None,
         run_sink: Callable[[dict], None] | None = None,
         planned_members: Iterable[tuple[str, str]] = (),
+        accounting_store=None,
     ):
         self.predicates = predicates
         self.identity = identity
@@ -178,10 +197,9 @@ class EndpointQueryReducer:
         self.observation_sink = observation_sink
         self.run_sink = run_sink
         self.runs = StrictRunReducer(identity, predicates.sources)
-        self.members = {
-            (day, symbol): MemberAccounting(day, symbol)
-            for day, symbol in planned_members
-        }
+        if accounting_store is not None and tuple(planned_members):
+            raise ValueError("planned members belong to the selected accounting store")
+        self.accounting = accounting_store or MemoryAccountingStore(planned_members)
         self.total_rows = 0
 
     @staticmethod
@@ -202,8 +220,7 @@ class EndpointQueryReducer:
             raise ValueError("row lacks member key") from error
         if not all(isinstance(value, str) and value for value in key):
             raise ValueError("invalid member key")
-        accounting = self.members.setdefault(key, MemberAccounting(*key))
-        accounting.add(result.status)
+        self.accounting.add(*key, result.status)
         self.total_rows += 1
         if result.matching and self.observation_sink is not None:
             names = (
@@ -236,10 +253,7 @@ class EndpointQueryReducer:
         if self.run_sink is not None:
             for run in emitted:
                 self.run_sink(run.to_dict())
-        member_rows = [
-            self.members[key].to_dict()
-            for key in sorted(self.members)
-        ]
+        member_rows = self.accounting.finish()
         totals = {
             name: sum(row[name] for row in member_rows)
             for name in (
