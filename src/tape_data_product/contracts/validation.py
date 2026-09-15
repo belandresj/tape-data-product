@@ -25,7 +25,7 @@ BASE_ALLOWED = int(Reason.SOURCE_UNAVAILABLE | Reason.SOURCE_UNVERIFIED | Reason
                    Reason.NO_SUPPORTED_DATA | Reason.INVALID_CURRENT_VALUE | Reason.CONTINUITY_BREAK)
 
 
-def _base(row):
+def _base(row, session_start=None):
     for group, names in BASE_GROUPS.items():
         allowed = BASE_ALLOWED
         if group.endswith('_age'):
@@ -85,7 +85,9 @@ def _base(row):
             raise ContractError("midpoint lower bound mismatch")
     if status == 2 and (age is None or origin is None or bound is not None):
         raise ContractError("invalid known-age state")
-    if origin is not None and not session_bounds(row['session_date'])[0] <= origin < row['interval_end_ns']:
+    if session_start is None:
+        session_start = session_bounds(row['session_date'])[0]
+    if origin is not None and not session_start <= origin < row['interval_end_ns']:
         raise ContractError("invalid midpoint observation origin")
     if (row['halt_id'] is not None) != row['halt_active']:
         raise ContractError("halt identity disagreement")
@@ -96,8 +98,8 @@ def _base(row):
             raise ContractError("closed halt second lacks halt reasons")
 
 
-def _features(row, config):
-    for f in feature_registry(config):
+def _features(row, config, registry=None):
+    for f in feature_registry(config) if registry is None else registry:
         allowed = HISTORY_REASONS
         if f.family == 'participation':
             allowed |= int(Reason.ZERO_RETURN_VARIATION)
@@ -154,32 +156,44 @@ def validate_batch(batch, kind, *, config=DEFAULT_CONFIG, previous_key=None):
     """Validate <=25k rows, returning final key for cross-batch grid validation.
 
     Callers still reconcile full session/member counts and cross-table joins.
-    Work O(rows*fields), memory O(fields) beyond the caller-owned Arrow batch.
+    Work O(rows*fields), auxiliary memory O(batch_rows*fields), bounded by
+    the 25,000-row admission limit (default callers use 4,096). Python column
+    lists preserve integer/Decimal/null types; no floating coercion is used.
     """
-    choices = {'base': BASE_SCHEMA, 'features': feature_schema(config), 'support': support_schema(config)}
-    if kind not in choices or not isinstance(batch, pa.RecordBatch):
+    if kind not in ('base', 'features', 'support') or not isinstance(batch, pa.RecordBatch):
         raise ContractError("expected a known table kind and Arrow RecordBatch")
-    schema = choices[kind]
+    schema = BASE_SCHEMA if kind == 'base' else feature_schema(config) if kind == 'features' else support_schema(config)
     if batch.num_rows > 25000 or not batch.schema.equals(schema, check_metadata=True):
         raise ContractError("batch/schema mismatch")
     if any(not f.nullable and batch.column(i).null_count for i, f in enumerate(schema)):
         raise ContractError("null in required field")
+    names = schema.names
+    columns = [column.to_pylist() for column in batch.columns]
+    registry = feature_registry(config) if kind == 'features' else None
     previous = previous_key
-    for i in range(batch.num_rows):
-        row = {f.name: batch.column(j)[i].as_py() for j, f in enumerate(schema)}
-        for value in row.values():
+    cached_member = None
+    for values in zip(*columns):
+        row = dict(zip(names, values))
+        for value in values:
             if isinstance(value, float) and not math.isfinite(value):
                 raise ContractError("nonfinite stored number")
-        if not re.fullmatch(r'[A-Z0-9][A-Z0-9._-]{0,31}', row['symbol']):
-            raise ContractError("invalid symbol")
-        start, end = session_bounds(row['session_date'])
+        member = (row['session_date'], row['symbol'])
+        if member != cached_member:
+            if not re.fullmatch(r'[A-Z0-9][A-Z0-9._-]{0,31}', row['symbol']):
+                raise ContractError("invalid symbol")
+            start, end = session_bounds(row['session_date'])
+            cached_member = member
         t = row['interval_end_ns']
-        key = (row['session_date'], row['symbol'], t)
+        key = (*member, t)
         if not start < t <= end or t % NS:
             raise ContractError("timestamp outside session grid")
         if previous is not None and (previous[:2] != key[:2] or t != previous[2] + NS):
             raise ContractError("member changed or grid gap/duplicate")
-        {'base': _base, 'features': lambda r: _features(r, config),
-         'support': lambda r: _support(r, config)}[kind](row)
+        if kind == 'base':
+            _base(row, session_start=start)
+        elif kind == 'features':
+            _features(row, config, registry)
+        else:
+            _support(row, config)
         previous = key
     return previous

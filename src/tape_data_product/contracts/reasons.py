@@ -42,7 +42,8 @@ def decode_reasons(mask):
 
 
 def validate_value(value, mask, *, allowed=ALL_REASONS, maximum=None, positive=False):
-    decode_reasons(mask)
+    # Validate the mask without constructing unused human-readable names.
+    integer(mask, "reason mask", 0, ALL_REASONS)
     if mask & ~allowed:
         raise ContractError("reason does not apply to this measurement")
     if (value is None) != (mask != 0):
