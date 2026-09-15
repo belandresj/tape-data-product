@@ -1,6 +1,7 @@
 """Immutable one-worker calculation plans and fail-closed manual execution."""
 from __future__ import annotations
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -21,6 +22,7 @@ def create_plan(inventory_path,admissions_path,config_path,limits_path,output):
           "admissions_path":str(Path(admissions_path).resolve()),"admissions_sha256":sha256_file(admissions_path)[0],"config":config.to_dict(),"contract_identity":contract_identity(config),
           "limits":limits,"members":members,"expected_members":len(members),"unresolved_members":unresolved,"transfer_complete":bool(inventory.get("transfer_complete",False)),
           "measurement_references":inventory.get("measurement_references",[]),"transfer_completion":inventory.get("transfer_completion"),
+          "transfer_manifest_sha256":inventory.get("transfer_manifest_sha256"),
           "release":inventory.get("release"),"base_root":inventory.get("base_root"),"feature_root":inventory.get("feature_root"),"ledger_path":inventory.get("ledger_path")}
     write_atomic_json(output/"plan.json",plan);sha=sha256_file(output/"plan.json")[0]
     return {"plan":str((output/"plan.json").resolve()),"sha256":sha,"members":len(members),"unresolved":len(unresolved),"ready":not unresolved and plan["transfer_complete"] and bool(plan["transfer_completion"]) and bool(plan["measurement_references"])}
@@ -41,13 +43,15 @@ def _preflight(plan):
         blockers.append("expected_member_reconciliation_failed")
     if not plan["transfer_complete"]:blockers.append("transfer_incomplete")
     completion=plan.get("transfer_completion")
+    if type(plan.get("transfer_manifest_sha256")) is not str or not re.fullmatch(r"[0-9a-f]{64}",plan["transfer_manifest_sha256"]):
+        blockers.append("transfer_manifest_identity_missing")
     if not completion:
         blockers.append("transfer_completion_missing")
     else:
         try:
             body=read_json(completion["path"])
             if (set(completion)!={"path","sha256"} or sha256_file(completion["path"])[0]!=completion["sha256"]
-                    or body.get("status")!="complete" or body.get("expected_members")!=plan["expected_members"]):
+                    or body!={"status":"complete","expected_members":plan["expected_members"],"manifest_sha256":plan.get("transfer_manifest_sha256")}):
                 blockers.append("transfer_completion_mismatch")
         except (KeyError,FileNotFoundError,ContractError):blockers.append("transfer_completion_mismatch")
     if plan["unresolved_members"]:blockers.append(f"unresolved_admission:{len(plan['unresolved_members'])}")

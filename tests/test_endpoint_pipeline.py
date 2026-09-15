@@ -198,10 +198,10 @@ def test_manifest_declared_rows_are_verified(tmp_path):
 
 def test_one_worker_plan_executes_base_then_features(tmp_path):
     pair,context=fixture(tmp_path,70);wheel=tmp_path/"candidate.whl";wheel.write_bytes(b"synthetic-wheel-identity")
-    completion=tmp_path/"transfer-complete.json";completion.write_text(json.dumps({"status":"complete","expected_members":1}))
+    transfer_manifest_sha="b"*64;completion=tmp_path/"transfer-complete.json";completion.write_text(json.dumps({"status":"complete","expected_members":1,"manifest_sha256":transfer_manifest_sha}))
     member={"session_date":"2026-09-02","symbol":"SYN"}
     release={"source_revision":"a"*40,"wheel_path":str(wheel),"wheel_sha256":sha256_file(wheel)[0],"executable":sys.executable,"contract_identity":contract_identity(),"base_implementation_identity":base_implementation_identity()["sha256"],"feature_implementation_identity":feature_implementation_identity()["sha256"]}
-    inventory={"members":[member],"transfer_complete":True,"transfer_completion":{"path":str(completion),"sha256":sha256_file(completion)[0]},"measurement_references":["synthetic_fixture"],"release":release,"base_root":str(tmp_path/"run-base"),"feature_root":str(tmp_path/"run-features"),"ledger_path":str(tmp_path/"run-ledger.sqlite")}
+    inventory={"members":[member],"transfer_complete":True,"transfer_manifest_sha256":transfer_manifest_sha,"transfer_completion":{"path":str(completion),"sha256":sha256_file(completion)[0]},"measurement_references":["synthetic_fixture"],"release":release,"base_root":str(tmp_path/"run-base"),"feature_root":str(tmp_path/"run-features"),"ledger_path":str(tmp_path/"run-ledger.sqlite")}
     admissions={"findings":[{"member":"2026-09-02/SYN","state":"metadata_admitted","source_pair_path":str(pair),"member_context_path":str(context)}]};limits={"workers":1,"batch_size":7,"disk_reserve_bytes":0,"scratch_cap_bytes":0}
     for name,value in (("inventory-run.json",inventory),("admissions-run.json",admissions),("config-run.json",DEFAULT_CONFIG.to_dict()),("limits-run.json",limits)):(tmp_path/name).write_text(json.dumps(value))
     plan=create_plan(tmp_path/"inventory-run.json",tmp_path/"admissions-run.json",tmp_path/"config-run.json",tmp_path/"limits-run.json",tmp_path/"run-plan")
