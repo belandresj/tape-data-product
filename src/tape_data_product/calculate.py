@@ -17,7 +17,7 @@ def create_plan(inventory_path,admissions_path,config_path,limits_path,output):
     plan={"version":"tape_calculation_plan_v1","inventory_path":str(Path(inventory_path).resolve()),"inventory_sha256":sha256_file(inventory_path)[0],
           "admissions_path":str(Path(admissions_path).resolve()),"admissions_sha256":sha256_file(admissions_path)[0],"config":config.to_dict(),"contract_identity":contract_identity(config),
           "limits":limits,"members":members,"expected_members":len(members),"unresolved_members":unresolved,"transfer_complete":bool(inventory.get("transfer_complete",False)),
-          "measurement_references":inventory.get("measurement_references",[]),"base_root":inventory.get("base_root"),"feature_root":inventory.get("feature_root"),"ledger_path":inventory.get("ledger_path")}
+          "measurement_references":inventory.get("measurement_references",[]),"release":inventory.get("release"),"base_root":inventory.get("base_root"),"feature_root":inventory.get("feature_root"),"ledger_path":inventory.get("ledger_path")}
     write_atomic_json(output/"plan.json",plan);sha=sha256_file(output/"plan.json")[0]
     return {"plan":str((output/"plan.json").resolve()),"sha256":sha,"members":len(members),"unresolved":len(unresolved),"ready":not unresolved and plan["transfer_complete"] and bool(plan["measurement_references"])}
 
@@ -31,6 +31,11 @@ def run_plan(plan_path,expected):
     if not plan["transfer_complete"]:blockers.append("transfer_incomplete")
     if plan["unresolved_members"]:blockers.append(f"unresolved_admission:{len(plan['unresolved_members'])}")
     if not plan["measurement_references"]:blockers.append("representative_measurement_missing")
+    release=plan.get("release") or {}
+    if set(release)!={"source_revision","wheel_path","wheel_sha256","executable","contract_identity","base_implementation_identity","feature_implementation_identity"}:
+        blockers.append("release_identity_missing")
+    elif not Path(release["executable"]).is_file() or sha256_file(release["wheel_path"])[0]!=release["wheel_sha256"]:
+        blockers.append("release_identity_mismatch")
     for key in ("base_root","feature_root","ledger_path"):
         if not plan.get(key):blockers.append(f"missing_{key}")
     if blockers:raise ContractError("calculation preflight blocked: "+",".join(blockers))

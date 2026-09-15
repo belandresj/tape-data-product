@@ -59,3 +59,11 @@ The tested administrative runner needed explicit `tape` group selection because 
 Hash/row verification proves that the intended objects arrived and decode correctly. Production replay must separately establish source eligibility, terminal coverage, discovery/knowledge clocks, continuity, and exact units/precision. Preserve unavailable evidence explicitly; do not synthesize receipts from filenames or first/last event times.
 
 The measured sample does not authorize full migration. Measure the exact raw-to-base and base-to-feature paths before setting corpus storage/concurrency budgets or projecting full builds. Raw retention, derived outputs, rebuild overlap and spill all compete for the same disk.
+
+## Endpoint/EW calculation runner
+
+The candidate release is installed beside, and never switched over, `/opt/tape-data-product/current`. Its exact source revision, wheel SHA-256, scoped implementation identities, executable, 7,085-member inventory hash, and calculation-plan hash are recorded in the private plan under `/srv/tape-data-product/control/feature-calculation-plan-final/`.
+
+The manual invocation is a fail-closed `systemd-run --user --wait --collect --pipe` service with `WorkingDirectory=/tmp`, `MemoryMax=1536M`, `MemorySwapMax=0`, `TasksMax=64`, `CPUQuota=200%`, and `RuntimeMaxSec=21600`. Because the persistent user manager predates group changes, invoke the absolute release executable through `/usr/bin/sg tape -c`, passing `calculate run --plan ABSOLUTE_PLAN --expected-plan-sha256 EXACT_HASH`.
+
+The current plan must exit before calculation: transfer reconciliation, source admission, and representative measurement references are incomplete. Do not schedule or launch it as a corpus job. Once those blockers are resolved, generate a new immutable plan and use its new exact expected hash; never edit an accepted plan in place.
