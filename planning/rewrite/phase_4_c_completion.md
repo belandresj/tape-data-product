@@ -65,4 +65,27 @@ python -m tape_data_product.analysis.endpoint_joint_preview \
 
 The RMS–spread panels are broad and multimodal, with most visible mass below the RMS/spread=1 line rather than a single tight proportional ridge. The 120s view is more concentrated than the 30s view. RMS–participation mass is strongest at low participation, with secondary islands; this is mechanically related to the common return moments and is not evidence of independent dimensions. RMS–trade-rate shows the clearest upward-sloping visible bands, especially at 120s, but the multiple bands and quiet/off-axis mass are consistent with member/session composition as well as any within-member association. No correlation, causal, predictive, or executable-edge claim follows from these pooled heatmaps.
 
-This is a retrospectively selected stratified development sample, not a frequency estimate for the 5,208-member corpus or the wider market. Observations are dependent because five-second returns overlap and all plotted features are exponentially smoothed. Full-population execution, ECDFs, session splits, equal-member sensitivity, and activity-conditioned figures remain unperformed.
+This is a retrospectively selected stratified development sample, not a frequency estimate for the 5,208-member corpus or the wider market. Observations are dependent because five-second returns overlap and all plotted features are exponentially smoothed. Full-population execution, ECDFs and equal-member sensitivity remain unperformed; the expanded activity/session follow-up is recorded below.
+
+## Expanded activity pilot, 2026-09-15
+
+The follow-up implementation at `fbdb613c6bd7b79176a06b27be5fb0ad3f7b192a` adds the requested activity-conditioned test run without changing or overwriting the unconditional preview. Its isolated wheel SHA-256 is `340d1541fdf01478421a96c230b9d0e8a882aa4a8a33d0e9abb5488a2e1a0154`. Twelve focused installed-wheel tests passed in 1.46 seconds, covering inclusive gate boundaries, all rate-band boundaries, unavailable gate inputs, pair-specific feature validity, session/pooled reconciliation, and batch-division invariance.
+
+The expanded scan projects the original eight fields plus trade-age p90 at window60s and window300s. It applies the explicitly labeled legacy-like gates `trade_rate_hl30s >= 1/s and trade_age_p90_window60s <= 2s` and `trade_rate_hl120s >= 1/s and trade_age_p90_window300s <= 2s`. It saves unconditional and gated histograms by pooled/premarket/RTH/after-hours session, plus exact-zero, positive-below-one, 1–<10, 10–<30, 30–<100 and >=100 trades/s partitions where applicable. The output contains 208 panel partitions, 579,184 extended histogram cells and 4,992 per-member contribution rows.
+
+The fixed pilot retains 188,369 endpoints at the fast gate (13.63% of represented time; 13.84% of gate-valid time) and 170,576 at the slow gate (12.34% represented; 12.59% gate-valid). Represented-time retention is 7.66%/7.04% premarket, 24.73%/22.22% RTH and 3.79%/3.58% after hours for fast/slow. The gate-passing spread-panel band counts are:
+
+| Band | Fast 30s/60s gate | Slow 120s/300s gate |
+|---|---:|---:|
+| 1–<10 trades/s | 110,543 | 92,458 |
+| 10–<30 trades/s | 62,554 | 64,173 |
+| 30–<100 trades/s | 14,368 | 13,637 |
+| >=100 trades/s | 887 | 308 |
+
+The detailed plots reproduce the old report's main qualitative activity structure: higher activity bands move toward larger RMS, and RMS–spread becomes a clearer positive diagonal. Participation continues to overlap broadly within and across activity bands. The >=100 trades/s band is retained and reconciled but is too sparse in this pilot for interpretation.
+
+The gated pilot is much more member-concentrated than the unconditional preview. `2026-04-22/NOW` contributes 17.4% of fast gated pair-valid observations and 19.2% of slow observations; the top five members contribute 59.7% and 63.7%. These plots validate mechanics and motivate the larger population run; they are not estimates of corpus frequencies.
+
+The one-pass real invocation processed 1,382,400 rows in 360 batches. File verification took 1.523 seconds, scan/expanded aggregation 18.604 seconds, rendering three pages from saved tables 6.811 seconds, and total wall time 29.670 seconds. Peak sampled process-tree RSS was 756,797,440 bytes, output was 1,796,809 bytes and spill was zero. The cache was uncontrolled/warm and the result is not a cold benchmark. The VM artifacts are `/srv/tape-data-product/reports/phase4-c-expanded-pilot-fbdb613`; the ignored inspection copy is `local_docs/phase4-c-expanded-pilot-fbdb613`.
+
+All validity partitions, extended histogram totals, activity-band partitions, session-to-pooled sums, member contributions, gate/member accounting and payload hashes reconcile. The three figures were visually checked at original resolution; axes, logarithmic color scales, reference lines, labels and footnotes are legible and unclipped. This accepts the expanded 24-member pilot mechanics only. A second-size scaling benchmark and the explicitly authorized 5,208-member execution remain pending.
