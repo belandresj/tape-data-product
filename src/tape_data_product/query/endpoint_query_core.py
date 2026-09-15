@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
 from .endpoint_predicates import PredicateSet
@@ -12,6 +13,12 @@ from .endpoint_runs import RunBoundary, StrictRunReducer
 
 
 QUERY_CONFIG_VERSION = "endpoint_query_config_v1"
+_IMPLEMENTATION_MODULES = (
+    "endpoint_predicates.py",
+    "endpoint_runs.py",
+    "endpoint_query_core.py",
+    "endpoint_query_outputs.py",
+)
 
 
 def canonical_json(value: object) -> str:
@@ -59,6 +66,18 @@ def query_descriptor(
 
 def query_identity(descriptor: Mapping[str, object]) -> str:
     return hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+
+
+def endpoint_query_implementation_identity() -> dict:
+    root = Path(__file__).parent
+    files = {
+        name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+        for name in _IMPLEMENTATION_MODULES
+    }
+    return {
+        "files": files,
+        "sha256": hashlib.sha256(canonical_json(files).encode()).hexdigest(),
+    }
 
 
 @dataclass

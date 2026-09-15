@@ -7,6 +7,7 @@ import pytest
 from tape_data_product.query.endpoint_predicates import compile_predicates
 from tape_data_product.query.endpoint_query_core import (
     EndpointQueryReducer,
+    endpoint_query_implementation_identity,
     query_descriptor,
     query_identity,
 )
@@ -196,6 +197,9 @@ def test_query_identity_is_canonical_and_extra_display_does_not_change_matches()
     assert query_identity(first) != query_identity(with_display)
     test_row = row(0, 3, display_metric=None, display_metric_reason_mask=64)
     assert selected.evaluate(test_row).status == "matching"
+    implementation = endpoint_query_implementation_identity()
+    assert len(implementation["files"]) == 4
+    assert len(implementation["sha256"]) == 64
 
 
 def test_empty_export_retains_schemas_and_complete_accounting(tmp_path):

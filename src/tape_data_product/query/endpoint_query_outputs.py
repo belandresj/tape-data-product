@@ -15,6 +15,10 @@ import pyarrow.parquet as pq
 
 MAX_BUFFER_ROWS = 4096
 
+
+def schema_hash(schema: pa.Schema) -> str:
+    return hashlib.sha256(schema.serialize().to_pybytes()).hexdigest()
+
 STRICT_RUN_SCHEMA = pa.schema(
     [
         pa.field("run_id", pa.string(), False),
@@ -114,7 +118,11 @@ class StreamingParquetWriter:
     def close(self) -> dict:
         self.flush()
         self.writer.close()
-        return {**_identity(self.path), "rows": self.rows}
+        return {
+            **_identity(self.path),
+            "rows": self.rows,
+            "schema_sha256": schema_hash(self.schema),
+        }
 
 
 class EndpointQueryExport:
@@ -176,11 +184,14 @@ class EndpointQueryExport:
                 "matching_observations": observations,
                 "strict_runs": runs,
                 "member_accounting": {
-                    **_identity(members_path), "rows": len(summary["members"])
+                    **_identity(members_path),
+                    "rows": len(summary["members"]),
+                    "schema_sha256": schema_hash(MEMBER_ACCOUNTING_SCHEMA),
                 },
                 "symbol_date_contributions": {
                     **_identity(contributions_path),
                     "rows": len(summary["contributions"]),
+                    "schema_sha256": schema_hash(CONTRIBUTION_SCHEMA),
                 },
             },
             "complete": True,

@@ -60,8 +60,11 @@ class StrictRunReducer:
         result = {}
         for source in self.required_sources:
             value = row.get(f"{source}_continuity_id")
+            break_value = row.get(f"{source}_continuity_break_in_second")
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"invalid {source} continuity id")
+            if type(break_value) is not bool:
+                raise ValueError(f"invalid {source} continuity break flag")
             result[source] = value
         return result
 
@@ -148,7 +151,7 @@ class StrictRunReducer:
             else:
                 source_break = any(
                     continuity[source] != previous["continuity"][source]
-                    or row.get(f"{source}_continuity_break_in_second") is True
+                    or row[f"{source}_continuity_break_in_second"]
                     for source in self.required_sources
                 )
                 if source_break:
