@@ -90,8 +90,10 @@ def _transfer_summary(path):
             elif kind=="discovery_reference":
                 if (day is not None or symbol is not None or stream is not None or record["verify_mode"]!="parquet_rows"
                         or type(record.get("rows")) is not int or record["rows"]<0):raise ContractError("malformed discovery reference")
-            elif (day is not None or symbol is not None or stream is not None or record["verify_mode"]!="bytes"
-                    or record.get("rows") is not None):raise ContractError("malformed halt support")
+            elif (day is not None or symbol is not None or stream is not None
+                    or not ((record["verify_mode"]=="bytes" and record.get("rows") is None)
+                            or (record["verify_mode"]=="parquet_rows" and type(record.get("rows")) is int and record["rows"]>=0))):
+                raise ContractError("malformed halt support")
     paired={f"{d}/{s}" for (d,s),streams in members.items() if streams=={"quotes","trades"}}
     if any(streams!={"quotes","trades"} for streams in members.values()):raise ContractError("unpaired transfer member")
     return paired,objects,bytes_total,records,kind_summary
@@ -107,6 +109,7 @@ def _validate_measurement(body,plan,release):
             or body["wheel_sha256"]!=release.get("wheel_sha256")
             or body["config_sha256"]!=digest(plan["config"])
             or type(body["measurement_id"]) is not str or not re.fullmatch(r"[0-9a-f]{64}",body["measurement_id"])
+            or body["measurement_id"]!=digest({k:v for k,v in body.items() if k not in {"measurement_id","readiness_decision_sha256"}})
             or type(body["readiness_decision_sha256"]) is not str or not re.fullmatch(r"[0-9a-f]{64}",body["readiness_decision_sha256"])):
         raise ContractError("measurement identity")
     sample=body["sample"]
@@ -130,7 +133,7 @@ def _validate_measurement(body,plan,release):
     phases=body["phases"]
     if type(phases) is not dict or set(phases)!={"build","verification"}:raise ContractError("measurement phases")
     for phase in phases.values():
-        if type(phase) is not dict or set(phase)!={"read_bytes","peak_rss_bytes","wall_seconds","disk_bytes","guards"}:raise ContractError("measurement phase")
+        if type(phase) is not dict or set(phase)!={"decoded_raw_rows","read_bytes","peak_rss_bytes","wall_seconds","disk_bytes","guards"}:raise ContractError("measurement phase")
         disk=phase["disk_bytes"];guards=phase["guards"]
         if (type(disk) is not dict or set(disk)!={"output","scratch_peak"} or any(type(disk[x]) is not int or disk[x]<0 for x in disk)
                 or type(phase["read_bytes"]) is not int or phase["read_bytes"]<=0
@@ -138,9 +141,15 @@ def _validate_measurement(body,plan,release):
                 or type(phase["wall_seconds"]) not in (int,float) or not math.isfinite(phase["wall_seconds"]) or phase["wall_seconds"]<=0
                 or guards!={"workers":1,"threads":1,"batch_size":4096,"cpu_quota_percent":200,"tasks_max":64,
                     "memory_max_bytes":1610612736,"memory_swap_max_bytes":0,"process_tree_rss_stop_bytes":1073741824,
-                    "runtime_max_seconds":600,"read_limit_bytes":1073741824,"scratch_limit_bytes":2147483648,
+                    "runtime_max_seconds":600,"read_limit_bytes":1073741824,"output_scratch_limit_bytes":2147483648,
                     "max_decoded_raw_rows":2000000}
-                or guards["read_limit_bytes"]<phase["read_bytes"] or guards["scratch_limit_bytes"]<phase["disk_bytes"]["scratch_peak"]):
+                or type(phase["decoded_raw_rows"]) is not int or phase["decoded_raw_rows"]<0
+                or phase["decoded_raw_rows"]>guards["max_decoded_raw_rows"]
+                or phase["read_bytes"]>guards["read_limit_bytes"]
+                or phase["peak_rss_bytes"]>guards["process_tree_rss_stop_bytes"]
+                or phase["peak_rss_bytes"]>guards["memory_max_bytes"]
+                or phase["wall_seconds"]>guards["runtime_max_seconds"]
+                or phase["disk_bytes"]["output"]+phase["disk_bytes"]["scratch_peak"]>guards["output_scratch_limit_bytes"]):
             raise ContractError("measurement resources/guards")
 
 
