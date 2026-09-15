@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 import fcntl
 import hashlib
 import math
 import os
 from pathlib import Path
 import re
+from bisect import bisect_right
 import shutil
 import tempfile
 
@@ -25,7 +25,7 @@ from ..contracts.policy import (NS, RTH_TRADE_CONDITIONS, EXTENDED_TRADE_CONDITI
     QUOTE_EXPLICIT_CROSSED_CODES, QUOTE_EXPLICIT_LOCKED_CODES, timely_trade)
 from ..contracts.reasons import Reason, SourceStatus, MidpointAgeStatus
 from ..contracts.schemas import schema_hash
-from ..contracts.source import share_units, shares_from_units, add_share_units
+from ..contracts.source import MAX_UNITS, share_units, shares_from_units
 from ..contracts.validation import validate_batch
 from ..integrity import read_json, sha256_file, write_atomic_json, output_record, verify_output
 from .admission import load_member_descriptors
@@ -34,6 +34,16 @@ QUOTE_COLUMNS = ("sip_timestamp", "sequence_number", "bid_price", "ask_price", "
                  "ask_size", "conditions", "indicators")
 TRADE_COLUMNS = ("sip_timestamp", "sequence_number", "participant_timestamp", "price",
                  "decimal_size", "size", "conditions", "correction")
+
+_KNOWN_QUOTE_CONDITIONS = frozenset(KNOWN_QUOTE_CONDITIONS)
+_KNOWN_QUOTE_INDICATORS = frozenset(KNOWN_QUOTE_INDICATORS)
+_INVALID_QUOTE_CODES = frozenset(QUOTE_ONE_SIDED_CODES + QUOTE_NONFIRM_CODES
+                                 + QUOTE_CLOSED_OR_NO_QUOTE_CODES + QUOTE_INVALID_CODES
+                                 + QUOTE_EXPLICIT_CROSSED_CODES)
+_LOCKED_QUOTE_CODES = frozenset(QUOTE_EXPLICIT_LOCKED_CODES)
+_KNOWN_TRADE_CONDITIONS = frozenset(KNOWN_TRADE_CONDITIONS)
+_RTH_TRADE_CONDITIONS = frozenset(RTH_TRADE_CONDITIONS)
+_EXTENDED_TRADE_CONDITIONS = frozenset(EXTENDED_TRADE_CONDITIONS)
 
 
 def _implementation_identity():
@@ -86,12 +96,19 @@ def _event_rows(path, columns, batch_size, stop_ns, *, seed_start=None):
         raise ContractError(f"missing required columns: {sorted(missing)}")
     previous = None
     for batch in parquet.iter_batches(batch_size=batch_size, columns=list(columns), use_threads=False):
-        names = batch.schema.names
-        for values in zip(*(batch.column(i).to_pylist() for i in range(batch.num_columns))):
-            row = dict(zip(names, values))
-            sip, seq = row["sip_timestamp"], row["sequence_number"]
-            if type(sip) is not int or type(seq) is not int:
-                raise ContractError("untrustworthy event key")
+        if any(not pa.types.is_integer(batch.column(index).type) or batch.column(index).null_count
+               for index in (0, 1)):
+            raise ContractError("untrustworthy event key")
+        if columns == TRADE_COLUMNS and not pa.types.is_integer(batch.column(2).type):
+            raise ContractError("untrustworthy participant clock")
+        values = []
+        for column in batch.columns:
+            if (pa.types.is_integer(column.type) or pa.types.is_floating(column.type)) and not column.null_count:
+                values.append(column.to_numpy(zero_copy_only=False).tolist())
+            else:
+                values.append(column.to_pylist())
+        for row in zip(*values):
+            sip, seq = int(row[0]), int(row[1])
             key = (sip, seq)
             if previous is not None and key <= previous:
                 raise ContractError("duplicate/decreasing composite event key")
@@ -99,15 +116,19 @@ def _event_rows(path, columns, batch_size, stop_ns, *, seed_start=None):
             if sip >= stop_ns:
                 return
             if seed_start is None or sip >= seed_start:
-                yield row
+                yield (sip, seq, *row[2:])
 
 
 def _codes(value, known, name):
-    if value is None: return (), set()
-    if type(value) is not list or len(value) > 64 or any(type(x) is not int for x in value):
+    if value is None: return (), False
+    if type(value) is not list or len(value) > 64:
         raise ContractError(f"malformed {name} codes")
-    unknown = set(value) - set(known)
-    return tuple(value), unknown
+    unknown = False
+    for code in value:
+        if type(code) is not int:
+            raise ContractError(f"malformed {name} codes")
+        unknown |= code not in known
+    return value, unknown
 
 
 @dataclass
@@ -122,13 +143,17 @@ class QuoteState:
 
 
 def _apply_quote(state, row, multiplier):
-    codes, unknown_c = _codes(row["conditions"], KNOWN_QUOTE_CONDITIONS, "quote condition")
-    indicators, unknown_i = _codes(row["indicators"], KNOWN_QUOTE_INDICATORS, "quote indicator")
-    state.last_quote_ns = row["sip_timestamp"]
-    invalid = bool(unknown_c or unknown_i or set(codes) & set(QUOTE_ONE_SIDED_CODES + QUOTE_NONFIRM_CODES +
-                  QUOTE_CLOSED_OR_NO_QUOTE_CODES + QUOTE_INVALID_CODES + QUOTE_EXPLICIT_CROSSED_CODES))
-    bid, ask = row["bid_price"], row["ask_price"]
-    invalid |= any(type(x) not in (float, int) or isinstance(x, bool) or not math.isfinite(x) or x <= 0 for x in (bid, ask))
+    codes, unknown_c = _codes(row[6], _KNOWN_QUOTE_CONDITIONS, "quote condition")
+    _, unknown_i = _codes(row[7], _KNOWN_QUOTE_INDICATORS, "quote indicator")
+    state.last_quote_ns = row[0]
+    invalid = unknown_c or unknown_i
+    locked = False
+    for code in codes:
+        invalid |= code in _INVALID_QUOTE_CODES
+        locked |= code in _LOCKED_QUOTE_CODES
+    bid, ask = row[2], row[3]
+    invalid |= any(type(value) not in (float, int) or isinstance(value, bool)
+                   or not math.isfinite(value) or value <= 0 for value in (bid, ask))
     invalid |= not invalid and ask < bid
     if invalid:
         state.bid = state.ask = state.midpoint = None
@@ -139,25 +164,54 @@ def _apply_quote(state, row, multiplier):
     bid, ask = float(bid), float(ask); midpoint = bid / 2 + ask / 2
     recovering = not state.price_valid
     if recovering:
-        state.origin_ns = row["sip_timestamp"]; state.last_change_ns = None
+        state.origin_ns = row[0]; state.last_change_ns = None
     elif midpoint != state.midpoint:
-        state.last_change_ns = row["sip_timestamp"]
+        state.last_change_ns = row[0]
     state.bid, state.ask, state.midpoint, state.price_valid = bid, ask, midpoint, True
-    locked = bool(set(codes) & set(QUOTE_EXPLICIT_LOCKED_CODES))
     state.spread_valid = not (locked and bid != ask)
-    for side in ("bid", "ask"):
-        raw = row[f"{side}_size"]
-        valid = type(raw) in (float, int) and not isinstance(raw, bool) and math.isfinite(raw) and raw > 0
-        setattr(state, f"{side}_size_valid", valid)
-        setattr(state, f"{side}_size", float(raw) * multiplier if valid else None)
+    bid_size, ask_size = row[4], row[5]
+    state.bid_size_valid = (type(bid_size) in (float, int) and not isinstance(bid_size, bool)
+                            and math.isfinite(bid_size) and bid_size > 0)
+    state.ask_size_valid = (type(ask_size) in (float, int) and not isinstance(ask_size, bool)
+                            and math.isfinite(ask_size) and ask_size > 0)
+    state.bid_size = float(bid_size) * multiplier if state.bid_size_valid else None
+    state.ask_size = float(ask_size) * multiplier if state.ask_size_valid else None
 
 
-def _contains(intervals, start, end):
-    return sum(max(0, min(end, b)-max(start, a)) for a,b in intervals)
+@dataclass(frozen=True)
+class _IntervalIndex:
+    starts: tuple[int, ...]
+    ends: tuple[int, ...]
+    cumulative: tuple[int, ...]
 
+    @classmethod
+    def from_values(cls, values):
+        intervals = tuple(map(tuple, values))
+        total = 0; cumulative = [0]
+        for start, end in intervals:
+            total += end - start; cumulative.append(total)
+        return cls(tuple(start for start, _ in intervals),
+                   tuple(end for _, end in intervals), tuple(cumulative))
 
-def _point_in(intervals, point):
-    return any(a <= point < b for a,b in intervals)
+    def contains(self, point):
+        if len(self.starts) == 1:
+            return self.starts[0] <= point < self.ends[0]
+        index = bisect_right(self.starts, point) - 1
+        return index >= 0 and point < self.ends[index]
+
+    def duration(self, start, end):
+        if not self.starts or end <= start:
+            return 0
+        if len(self.starts) == 1:
+            return max(0, min(end, self.ends[0]) - max(start, self.starts[0]))
+        first = bisect_right(self.ends, start)
+        last = bisect_right(self.starts, end - 1)
+        if first >= last:
+            return 0
+        value = self.cumulative[last] - self.cumulative[first]
+        value -= max(0, start - self.starts[first])
+        value -= max(0, self.ends[last - 1] - end)
+        return value
 
 
 def _source_bit(status):
@@ -186,30 +240,36 @@ def _current_mask(valid, *, halt, status, broken=False, missing_event=False, mid
 
 
 def _trade_class(row, config, session_start):
-    correction = row["correction"]
+    correction = row[7]
     if correction is None: correction = 0
     if type(correction) is not int or correction not in KNOWN_CORRECTIONS:
         raise ContractError("unknown correction scope")
     if correction not in CAUSAL_CORRECTIONS: return "excluded", None
-    codes_result = _codes(row["conditions"], KNOWN_TRADE_CONDITIONS, "trade condition")
-    if len(codes_result) == 2: codes, unknown = codes_result
-    else: codes, unknown = codes_result, set()
+    codes, unknown = _codes(row[6], _KNOWN_TRADE_CONDITIONS, "trade condition")
     if unknown: return "uncertain", None
-    sip = row["sip_timestamp"]; participant = row["participant_timestamp"]
-    if type(participant) is not int: raise ContractError("untrustworthy participant clock")
+    sip, participant = row[0], row[2]
+    if participant is None: raise ContractError("untrustworthy participant clock")
+    participant = int(participant)
     elapsed = (sip - session_start) // NS
-    allowed = RTH_TRADE_CONDITIONS if 5*3600+30*60 <= elapsed < 12*3600 else EXTENDED_TRADE_CONDITIONS
+    allowed = _RTH_TRADE_CONDITIONS if 5*3600+30*60 <= elapsed < 12*3600 else _EXTENDED_TRADE_CONDITIONS
     if any(c not in allowed for c in codes) or not timely_trade(sip, participant, config): return "excluded", None
-    price = row["price"]
+    price = row[3]
     if type(price) not in (int,float) or isinstance(price,bool) or not math.isfinite(price): return "uncertain", None
     if price <= 0: return "excluded", None
-    quantity = row["decimal_size"] if row["decimal_size"] is not None else row["size"]
+    quantity = row[4] if row[4] is not None else row[5]
     try: units = share_units(quantity)
     except ContractError:
         if isinstance(quantity, (int,float)) and math.isfinite(quantity) and quantity <= 0: return "excluded", None
         raise
     if units == 0: return "excluded", None
     return "eligible", (float(price), units)
+
+
+def _add_admitted_share_units(total, units):
+    updated = total + units
+    if updated > MAX_UNITS:
+        raise ContractError("share total overflow")
+    return updated
 
 
 def _base_compatibility(pair, config, implementation):
@@ -300,16 +360,24 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
     quote_events = iter(_event_rows(root/pair["streams"]["quotes"]["path"], QUOTE_COLUMNS, batch_size, end, seed_start=start-300*NS))
     trade_events = iter(_event_rows(root/pair["streams"]["trades"]["path"], TRADE_COLUMNS, batch_size, end, seed_start=start))
     qnext, tnext = next(quote_events, None), next(trade_events, None)
+    qints = _IntervalIndex.from_values(context["observation_intervals"]["quotes"])
+    tints = _IntervalIndex.from_values(context["observation_intervals"]["trades"])
+    qgaps_values = tuple(map(tuple, context["gaps"].get("quotes", [])))
+    tgaps_values = tuple(map(tuple, context["gaps"].get("trades", [])))
+    qgaps = _IntervalIndex.from_values(qgaps_values)
+    tgaps = _IntervalIndex.from_values(tgaps_values)
+    quote_breaks = tuple(context["instantaneous_breaks"].get("quotes", [])) + tuple(a for a, _ in qgaps_values)
+    trade_breaks = tuple(context["instantaneous_breaks"].get("trades", [])) + tuple(a for a, _ in tgaps_values)
     state = QuoteState(); last_trade=None; quote_cont=trade_cont=0; quote_broken=trade_broken=False; was_halt=False
     # Verified seed is explicitly opted into; otherwise consume but do not apply pre-session quotes.
     last_seed_event=None
-    while qnext is not None and qnext["sip_timestamp"] < start:
+    while qnext is not None and qnext[0] < start:
         if context["seed"].get("basis") == "verified_interval": _apply_quote(state,qnext,multiplier)
         if context["seed"].get("basis") == "verified_interval": last_seed_event=qnext
         qnext=next(quote_events,None)
     if context["seed"].get("basis") == "verified_interval":
         evidence=read_json(Path(pair["evidence_root"])/context["seed"]["path"])["latest_event"]
-        actual=None if last_seed_event is None else {"sip_timestamp":last_seed_event["sip_timestamp"],"sequence_number":last_seed_event["sequence_number"]}
+        actual=None if last_seed_event is None else {"sip_timestamp":last_seed_event[0],"sequence_number":last_seed_event[1]}
         if actual!=evidence:raise ContractError("seed evidence/latest event mismatch")
         if state.price_valid:
             state.origin_ns=start;state.last_change_ns=None
@@ -317,28 +385,27 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
     try:
         for left in range(start,end,NS):
             right=left+NS; halts=[h for h in context["halts"] if h["start_ns"] < right and h["end_ns"] > left]
-            halt=bool(halts); qints=[tuple(x) for x in context["observation_intervals"]["quotes"]]; tints=[tuple(x) for x in context["observation_intervals"]["trades"]]
-            qgaps=[tuple(x) for x in context["gaps"].get("quotes",[])]; tgaps=[tuple(x) for x in context["gaps"].get("trades",[])]
-            qobs=max(0,_contains(qints,left,right)-_contains(qgaps,left,right)); tobs=max(0,_contains(tints,left,right)-_contains(tgaps,left,right))
-            qbreaks=[x for x in context["instantaneous_breaks"].get("quotes",[]) if left<=x<right] + [a for a,b in qgaps if left<=a<right]
-            tbreaks=[x for x in context["instantaneous_breaks"].get("trades",[]) if left<=x<right] + [a for a,b in tgaps if left<=a<right]
+            halt=bool(halts)
+            qobs=max(0,qints.duration(left,right)-qgaps.duration(left,right)); tobs=max(0,tints.duration(left,right)-tgaps.duration(left,right))
+            qbreaks=[x for x in quote_breaks if left<=x<right]
+            tbreaks=[x for x in trade_breaks if left<=x<right]
             quote_break_in_second=bool(qbreaks);trade_break_in_second=bool(tbreaks)
             halt_entry=halt and not was_halt
             if halt_entry:
                 state=QuoteState(); last_trade=None; quote_cont+=1; trade_cont+=1; quote_broken=trade_broken=True
-            qstatus=SourceStatus.ACCEPTED if _point_in(qints,right-1) and not _point_in(qgaps,right-1) else SourceStatus.UNAVAILABLE
-            tstatus=SourceStatus.ACCEPTED if _point_in(tints,right-1) and not _point_in(tgaps,right-1) else SourceStatus.UNAVAILABLE
+            qstatus=SourceStatus.ACCEPTED if qints.contains(right-1) and not qgaps.contains(right-1) else SourceStatus.UNAVAILABLE
+            tstatus=SourceStatus.ACCEPTED if tints.contains(right-1) and not tgaps.contains(right-1) else SourceStatus.UNAVAILABLE
             # quote integration, transitions before same-time events
             cursor=left; bsum=asum=ssum=bisum=aisum=0.0; pdur=sdur=bidur=aidur=0
-            while qnext is not None and qnext["sip_timestamp"] < right:
-                t=qnext["sip_timestamp"]
+            while qnext is not None and qnext[0] < right:
+                t=qnext[0]
                 boundaries=sorted([x for x in qbreaks if cursor<=x<=t])
                 for boundary in boundaries:
                     if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,boundary,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
                     state=QuoteState(); quote_cont+=1; quote_broken=True; cursor=boundary
                 if not halt:
                     bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,t,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
-                    if not _point_in(qgaps,t):
+                    if not qgaps.contains(t):
                         _apply_quote(state,qnext,multiplier); quote_broken=False
                 cursor=t; qnext=next(quote_events,None); qbreaks=[x for x in qbreaks if x>t]
             for boundary in sorted(x for x in qbreaks if cursor<=x<right):
@@ -347,14 +414,16 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
             if not halt: bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur=_integrate(state,cursor,right,bsum,asum,ssum,bisum,aisum,pdur,sdur,bidur,aidur,qints,qgaps)
             count=0; total=0; dollars=0.0; uncertain=False
             pending_trade_breaks=iter(sorted(tbreaks));next_trade_break=next(pending_trade_breaks,None)
-            while tnext is not None and tnext["sip_timestamp"] < right:
-                while next_trade_break is not None and next_trade_break <= tnext["sip_timestamp"]:
+            while tnext is not None and tnext[0] < right:
+                while next_trade_break is not None and next_trade_break <= tnext[0]:
                     last_trade=None;trade_cont+=1;trade_broken=True;next_trade_break=next(pending_trade_breaks,None)
-                if not halt and not _point_in(tgaps,tnext["sip_timestamp"]):
+                if not halt and not tgaps.contains(tnext[0]):
                     kind,payload=_trade_class(tnext,config,start)
                     if kind=="uncertain": uncertain=True; last_trade=None
                     elif kind=="eligible":
-                        price,quantity=payload; count+=1; total=add_share_units(total,shares_from_units(quantity)); dollars+=price*(quantity/1e9); last_trade=tnext["sip_timestamp"];trade_broken=False
+                        price,quantity=payload
+                        count+=1; total=_add_admitted_share_units(total,quantity)
+                        dollars+=price*(quantity/1e9); last_trade=tnext[0];trade_broken=False
                 tnext=next(trade_events,None)
             while next_trade_break is not None:
                 last_trade=None;trade_cont+=1;trade_broken=True;next_trade_break=next(pending_trade_breaks,None)
@@ -401,7 +470,7 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
 
 
 def _integrate(state,a,b,bs,asks,ss,bis,ais,pd,sd,bid,aid,observed,gaps):
-    duration=_contains(observed,a,b)-_contains(gaps,a,b)
+    duration=observed.duration(a,b)-gaps.duration(a,b)
     if duration<=0: return bs,asks,ss,bis,ais,pd,sd,bid,aid
     sec=duration/NS
     if state.price_valid:
