@@ -4,7 +4,7 @@
 
 ## Scope and identity
 
-The analysis branch is `codex/phase4-c-preview`. It starts from A's final handoff `96d74da8d37b8f6956db16405fc03bc621a453d9`, incorporates the report-first Phase 4 specification as a scoped Git commit, and adds the preview implementation at `d366296e1665ee010e950a834436eef9afd7683d`. The isolated wheel SHA-256 is `1e28b95ba625e9b508257141ae8cc09813ff422c1b40ae55ae9282c1c8117ed5`; the package resolved from a separate non-editable Python 3.13 environment.
+The analysis branch is `codex/phase4-c-preview`. It starts from A's final handoff `96d74da8d37b8f6956db16405fc03bc621a453d9`, incorporates the report-first Phase 4 specification as a scoped Git commit, and adds the preview implementation at `d3662968bb33990b30063e5000009e2ace7edbc6`. The isolated wheel SHA-256 is `1e28b95ba625e9b508257141ae8cc09813ff422c1b40ae55ae9282c1c8117ed5`; the package resolved from a separate non-editable Python 3.13 environment.
 
 Input was exactly the A reference at `/srv/tape-data-product/control/phase4-a-52b5b35-20260915/pilot-reference-v1-deterministic`, identity `4a410bd8321cfe0466dc7ecd02c8a5762a679c320d64376c24cea076465ae832`, and its existing endpoint/EW base and feature roots. The analysis used explicit `historical_membership` selection and all complete premarket, RTH, and after-hours sessions: 24 symbol-days and 1,382,400 represented one-second rows. It did not rebuild, resample, expand, copy, or filter members.
 
