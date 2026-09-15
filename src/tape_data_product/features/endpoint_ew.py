@@ -26,7 +26,7 @@ from ..contracts.registry import AGES, feature_registry
 from ..contracts.schemas import BASE_SCHEMA, feature_schema, support_schema, schema_hash
 from ..contracts.validation import validate_batch
 from ..integrity import read_json, sha256_file, write_atomic_json, output_record, verify_output
-from ..replay.builder import _verify_base_partition, verify_base_partition
+from ..replay.builder import _open_verified_base_partition, _verify_base_partition
 
 
 @dataclass(slots=True)
@@ -489,8 +489,8 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
     return processed_rows,underflows
 
 
-def verify_feature_partition(root,base_partition,*,config=DEFAULT_CONFIG):
-    root=Path(root);base_partition=Path(base_partition);base_manifest=verify_base_partition(base_partition);manifest=read_json(root/"manifest.json")
+def _open_verified_feature_partition(root,base_partition,base_manifest,config):
+    root=Path(root);base_partition=Path(base_partition);manifest=read_json(root/"manifest.json")
     required={"manifest_version","member","coverage","inputs","source_units","contract_identity","contract_config","implementation_identity","outputs","validation","complete"}
     if set(manifest)!=required or not manifest["complete"]:raise ContractError("invalid feature manifest")
     if FeatureConfig.from_dict(manifest["contract_config"])!=config:raise ContractError("feature stored config mismatch")
@@ -504,26 +504,63 @@ def verify_feature_partition(root,base_partition,*,config=DEFAULT_CONFIG):
     records={r["path"]:r for r in manifest["outputs"]}
     if set(records)!={"features.parquet","support.parquet"}:raise ContractError("feature companions missing")
     schemas={"features.parquet":feature_schema(config),"support.parquet":support_schema(config)}
-    key_iterators=[]
-    for name,kind in (("features.parquet","features"),("support.parquet","support")):
+    parquet_files={}
+    for name in ("features.parquet","support.parquet"):
         path=verify_output(root,records[name]);pf=pq.ParquetFile(path)
         if (records[name]["schema_sha256"]!=schema_hash(schemas[name])
                 or records[name]["rows"]!=manifest["coverage"]["expected_rows"]):raise ContractError("feature companion declaration mismatch")
         if not pf.schema_arrow.equals(schemas[name],check_metadata=True) or pf.metadata.num_rows!=manifest["coverage"]["expected_rows"]:raise ContractError("feature companion schema/count mismatch")
-        def keys(parquet_file, table_kind):
-            previous=None
-            for batch in parquet_file.iter_batches(batch_size=4096,use_threads=False):
-                previous=validate_batch(batch,table_kind,config=config,previous_key=previous)
-                yield from zip(*(batch.column(i).to_pylist() for i in range(3)))
-        key_iterators.append(keys(pf,kind))
-    base_pf=pq.ParquetFile(base_partition/"base.parquet")
-    def base_keys():
-        previous=None
-        for batch in base_pf.iter_batches(batch_size=4096,use_threads=False):
-            previous=validate_batch(batch,"base",previous_key=previous)
-            yield from zip(*(batch.column(i).to_pylist() for i in range(3)))
-    key_iterators.append(base_keys())
-    sentinel=object()
-    for values in zip_longest(*key_iterators,fillvalue=sentinel):
-        if sentinel in values or len(set(values))!=1:raise ContractError("base/feature/support key mismatch")
-    return manifest
+        parquet_files[name]=pf
+    return manifest,parquet_files
+
+
+def _validate_member_rows(base_pf,feature_pf,support_pf,base_manifest,config):
+    iterators=(
+        base_pf.iter_batches(batch_size=4096,use_threads=False),
+        feature_pf.iter_batches(batch_size=4096,use_threads=False),
+        support_pf.iter_batches(batch_size=4096,use_threads=False),
+    )
+    sentinel=object();previous=[None,None,None]
+    first_date=first_symbol=first_end=last_date=last_symbol=last_end=None
+    for batches in zip_longest(*iterators,fillvalue=sentinel):
+        if any(batch is sentinel for batch in batches) or len({batch.num_rows for batch in batches})!=1:
+            raise ContractError("base/feature/support key mismatch")
+        base_batch,feature_batch,support_batch=batches
+        for index,(batch,kind) in enumerate(zip(batches,("base","features","support"))):
+            previous[index]=validate_batch(batch,kind,config=config,previous_key=previous[index])
+        for column in range(3):
+            if (not base_batch.column(column).equals(feature_batch.column(column))
+                    or not base_batch.column(column).equals(support_batch.column(column))):
+                raise ContractError("base/feature/support key mismatch")
+        if base_batch.num_rows:
+            if first_date is None:
+                first_date=base_batch.column(0)[0].as_py()
+                first_symbol=base_batch.column(1)[0].as_py()
+                first_end=base_batch.column(2)[0].as_py()
+            last_date=base_batch.column(0)[-1].as_py()
+            last_symbol=base_batch.column(1)[-1].as_py()
+            last_end=base_batch.column(2)[-1].as_py()
+    member=base_manifest["member"];coverage=base_manifest["coverage"]
+    if (first_date!=member["session_date"] or first_symbol!=member["symbol"]
+            or first_end!=coverage["session_start_ns"]+NS
+            or last_date!=member["session_date"] or last_symbol!=member["symbol"]
+            or last_end!=coverage["end_ns"]):
+        raise ContractError("base coverage boundary mismatch")
+
+
+def verify_member_partitions(base_partition,feature_partition,*,config=DEFAULT_CONFIG):
+    """Hash/check all member artifacts and validate aligned rows in one bounded scan."""
+    if not isinstance(config,FeatureConfig):raise ContractError("invalid feature config")
+    base_partition=Path(base_partition);feature_partition=Path(feature_partition)
+    base_manifest,base_pf=_open_verified_base_partition(base_partition)
+    if base_manifest["base_compatibility"]["descriptor"]["max_trade_reporting_age_ns"]!=config.max_trade_reporting_age_ns:
+        raise ContractError("base raw measurement policy is incompatible")
+    feature_manifest,parquet_files=_open_verified_feature_partition(
+        feature_partition,base_partition,base_manifest,config)
+    _validate_member_rows(base_pf,parquet_files["features.parquet"],
+                          parquet_files["support.parquet"],base_manifest,config)
+    return {"base":base_manifest,"features":feature_manifest}
+
+
+def verify_feature_partition(root,base_partition,*,config=DEFAULT_CONFIG):
+    return verify_member_partitions(base_partition,root,config=config)["features"]

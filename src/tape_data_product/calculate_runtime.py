@@ -170,8 +170,8 @@ def _arm_parent_death(parent_pid):
 def _worker_main(input_queue, result_queue, config_body, batch_size, parent_pid):
     _arm_parent_death(parent_pid)
     # Spawn inherits THREAD_LIMIT_ENV before importing Arrow/numerical builders.
-    from .features.endpoint_ew import build_from_base
-    from .replay.builder import build_base_partition
+    from .features.endpoint_ew import build_from_base, verify_member_partitions
+    from .replay.builder import build_base_partition, _verify_reusable_base
 
     config = FeatureConfig.from_dict(config_body)
     if any(os.environ.get(name) != "1" for name in THREAD_LIMIT_ENV):
@@ -181,20 +181,41 @@ def _worker_main(input_queue, result_queue, config_body, batch_size, parent_pid)
         if task is None:
             return
         task_id, key, pair_path, context_path, base, features = task
+        base_manifest=Path(base)/"manifest.json"
+        feature_manifest=Path(features)/"manifest.json"
         try:
-            base_result = build_base_partition(
-                pair_path, context_path, base, config=config, batch_size=batch_size)
-            feature_result = build_from_base(
-                base, features, config=config, batch_size=batch_size)
+            # A prior committed pair is verified directly so restart does not
+            # invoke the standalone feature verifier before the combined scan.
+            if base_manifest.is_file() and feature_manifest.is_file():
+                _verify_reusable_base(
+                    pair_path,context_path,base,config,validate_rows=False)
+            else:
+                base_result = build_base_partition(
+                    pair_path, context_path, base, config=config, batch_size=batch_size)
+                feature_result = build_from_base(
+                    base, features, config=config, batch_size=batch_size)
+                base_manifest=base_result.manifest_path
+                feature_manifest=feature_result.manifest_path
+            output_bytes=_path_bytes(base)+_path_bytes(features)
             result_queue.put((
-                task_id, key, True, str(base_result.manifest_path),
-                str(feature_result.manifest_path),
-                _path_bytes(base) + _path_bytes(features), None,
+                "built",task_id,key,str(base_manifest),str(feature_manifest),
+                output_bytes,None,
+            ))
+            verify_member_partitions(base,features,config=config)
+            result_queue.put((
+                "verified",task_id,key,str(base_manifest),str(feature_manifest),
+                output_bytes,None,
             ))
         except BaseException as error:
             detail = "".join(
                 traceback.format_exception_only(type(error), error)).strip()[:4096]
-            result_queue.put((task_id, key, False, None, None, 0, detail))
+            committed=base_manifest.is_file() and feature_manifest.is_file()
+            result_queue.put((
+                "verification_failed" if committed else "build_failed",
+                task_id,key,str(base_manifest) if base_manifest.is_file() else None,
+                str(feature_manifest) if feature_manifest.is_file() else None,
+                _path_bytes(base)+_path_bytes(features) if committed else 0,detail,
+            ))
 
 
 def _stop_workers(processes, queues, *, graceful=False):
@@ -219,11 +240,13 @@ def _stop_workers(processes, queues, *, graceful=False):
         process.join(1)
 
 
-def _ledger_record(connection, key, status, base_manifest=None,
-                   feature_manifest=None, error=None):
+def _ledger_record(connection,key,status,base_manifest=None,
+                   feature_manifest=None,error=None,verification_status="not_run"):
     connection.execute(
-        "INSERT OR REPLACE INTO members VALUES (?,?,?,?,?,?)",
-        (key, status, base_manifest, feature_manifest, error, time.time_ns()))
+        "INSERT OR REPLACE INTO members "
+        "(member,status,base_manifest,feature_manifest,error,updated_ns,verification_status) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (key,status,base_manifest,feature_manifest,error,time.time_ns(),verification_status))
     connection.commit()
 
 
@@ -264,7 +287,7 @@ def run_members(plan, descriptors, plan_sha256, connection, started):
     connection.commit()
     pending = iter(ordered)
     active, task_ids = {}, {}
-    completed = committed_bytes = 0
+    built = verified = verification_failed = committed_bytes = 0
     baseline = {
         f"{member['session_date']}/{member['symbol']}":
         sum(_path_bytes(path) for path in member_paths(plan, member))
@@ -307,21 +330,26 @@ def run_members(plan, descriptors, plan_sha256, connection, started):
                 result = result_queue.get(timeout=0.05)
             except queue.Empty:
                 continue
-            (task_id, key, ok, base_manifest, feature_manifest,
-             output_bytes, error) = result
-            slot = next((slot for slot, value in task_ids.items()
-                         if value == task_id), None)
-            if slot is None:
-                raise ContractError("worker returned unknown task")
-            active.pop(slot)
-            task_ids.pop(slot)
-            if not ok:
-                _ledger_record(connection, key, "failed", error=error)
+            (phase,task_id,key,base_manifest,feature_manifest,
+             output_bytes,error)=result
+            slot=next((slot for slot,value in task_ids.items() if value==task_id),None)
+            if slot is None:raise ContractError("worker returned unknown task")
+            if phase=="built":
+                _ledger_record(connection,key,"built",base_manifest,feature_manifest,verification_status="pending")
+                built+=1
+                committed_bytes+=max(0,output_bytes-baseline[key])
+                continue
+            active.pop(slot);task_ids.pop(slot)
+            if phase=="build_failed":
+                _ledger_record(connection,key,"failed",base_manifest,feature_manifest,error)
                 raise ContractError(f"member failed: {key}: {error}")
-            _ledger_record(connection, key, "complete",
-                           base_manifest, feature_manifest)
-            completed += 1
-            committed_bytes += max(0, output_bytes - baseline[key])
+            if phase=="verification_failed":
+                _ledger_record(connection,key,"verification_failed",base_manifest,feature_manifest,error,verification_status="failed")
+                verification_failed+=1
+                raise ContractError(f"member verification failed: {key}: {error}")
+            if phase!="verified":raise ContractError("worker returned unknown phase")
+            _ledger_record(connection,key,"complete",base_manifest,feature_manifest,verification_status="passed")
+            verified+=1
             following = next(pending, None)
             if following is not None:
                 following_key = f"{following['session_date']}/{following['symbol']}"
@@ -354,8 +382,9 @@ def run_members(plan, descriptors, plan_sha256, connection, started):
         result_queue.cancel_join_thread()
         result_queue.close()
     return {
-        "status": "complete", "members": completed, "workers": workers,
-        "scheduling": scheduling, "start_method": "spawn",
+        "status":"complete","members":verified,"built_members":built,
+        "verified_members":verified,"verification_failed_members":verification_failed,
+        "workers":workers,"scheduling":scheduling,"start_method":"spawn",
         "wall_seconds": time.monotonic() - started,
         "peak_process_tree_rss_bytes": peak_rss,
         "peak_owned_output_scratch_bytes": peak_owned,

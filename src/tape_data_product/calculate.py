@@ -361,7 +361,10 @@ def _run_plan_locked(plan_path,expected):
     if blockers:raise ContractError("calculation preflight blocked: "+",".join(blockers))
     ledger_path=Path(plan["ledger_path"]);ledger_path.parent.mkdir(parents=True,exist_ok=True)
     connection=sqlite3.connect(ledger_path)
-    connection.execute("CREATE TABLE IF NOT EXISTS members (member TEXT PRIMARY KEY,status TEXT NOT NULL,base_manifest TEXT,feature_manifest TEXT,error TEXT,updated_ns INTEGER NOT NULL)")
+    connection.execute("CREATE TABLE IF NOT EXISTS members (member TEXT PRIMARY KEY,status TEXT NOT NULL,base_manifest TEXT,feature_manifest TEXT,error TEXT,updated_ns INTEGER NOT NULL,verification_status TEXT NOT NULL DEFAULT 'not_run')")
+    member_columns={row[1] for row in connection.execute("PRAGMA table_info(members)")}
+    if "verification_status" not in member_columns:
+        connection.execute("ALTER TABLE members ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'not_run'")
     connection.execute("CREATE TABLE IF NOT EXISTS run_attempts (attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,plan_sha256 TEXT NOT NULL,runner_identity TEXT NOT NULL,start_method TEXT NOT NULL,workers INTEGER NOT NULL,scheduling TEXT NOT NULL,started_ns INTEGER NOT NULL)")
     connection.execute("UPDATE members SET status='interrupted',error='previous parent exited before reconciliation',updated_ns=? WHERE status='running'",(time.time_ns(),));connection.commit()
     try:
@@ -380,7 +383,17 @@ def run_plan(plan_path,expected):
         except BlockingIOError as error:raise ContractError("calculation plan already running") from error
         return _run_plan_locked(plan_path,expected)
 
+def verify_member(base,features,config_path=None):
+    from .features.endpoint_ew import verify_member_partitions
+    config=DEFAULT_CONFIG if config_path is None else FeatureConfig.from_dict(read_json(config_path))
+    manifests=verify_member_partitions(base,features,config=config)
+    return {"base":str(Path(base).resolve()),"features":str(Path(features).resolve()),
+            "rows":manifests["base"]["coverage"]["expected_rows"],
+            "integrity":"passed","row_validation":"passed","key_alignment":"passed"}
+
+
 def register_commands(commands):
-    calculate=commands.add_parser("calculate",help="Prepare or manually run immutable calculation plans").add_subparsers(dest="calculate_command",required=True)
+    calculate=commands.add_parser("calculate",help="Prepare, verify, or manually run immutable calculation plans").add_subparsers(dest="calculate_command",required=True)
     plan=calculate.add_parser("plan");plan.add_argument("--inventory",required=True);plan.add_argument("--admissions",required=True);plan.add_argument("--config",required=True);plan.add_argument("--limits",required=True);plan.add_argument("--output",required=True);plan.set_defaults(func=lambda a:create_plan(a.inventory,a.admissions,a.config,a.limits,a.output))
+    verify=calculate.add_parser("verify-member");verify.add_argument("--base",required=True);verify.add_argument("--features",required=True);verify.add_argument("--config");verify.set_defaults(func=lambda a:verify_member(a.base,a.features,a.config))
     run=calculate.add_parser("run");run.add_argument("--plan",required=True);run.add_argument("--expected-plan-sha256",required=True);run.set_defaults(func=lambda a:run_plan(a.plan,a.expected_plan_sha256))
