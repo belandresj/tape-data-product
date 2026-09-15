@@ -639,12 +639,20 @@ def test_parallel_runner_reuses_completed_base_features_and_recovers_running_led
     connection.close()
     first = run_plan(plan["plan"], plan["sha256"])
     assert first["members"] == 1
+    first_timing = first["member_timings"]["2026-09-02/RST"]
+    assert first_timing["completed_output_reused"] is False
+    assert first_timing["base_wall_seconds"] > 0
+    assert first_timing["feature_wall_seconds"] > 0
+    assert first_timing["verification_wall_seconds"] > 0
+    assert first_timing["kernel_call_count"] > 0
+    assert first_timing["kernel_first_call_seconds"] > 0
     assert sha256_file(base_result.manifest_path)[0] == base_sha
     feature = (Path(inventory["feature_root"]) / "session_date=2026-09-02"
                / "symbol=RST" / "manifest.json")
     feature_sha = sha256_file(feature)[0]
     second = run_plan(plan["plan"], plan["sha256"])
     assert second["members"] == 1
+    assert second["member_timings"]["2026-09-02/RST"]["completed_output_reused"] is True
     assert sha256_file(base_result.manifest_path)[0] == base_sha
     assert sha256_file(feature)[0] == feature_sha
 

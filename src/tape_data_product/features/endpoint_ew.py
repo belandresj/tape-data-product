@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
+import time
 
 import numpy as np
 import pyarrow as pa
@@ -250,7 +251,7 @@ def _verify_generated_outputs(root,records,rows,config):
     return snapshots
 
 
-def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size=4096):
+def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size=4096, timing=None):
     integer(batch_size,"batch size",1,25000)
     if not isinstance(config,FeatureConfig):raise ContractError("invalid feature config")
     base_partition=Path(base_partition);base_manifest=_verify_base_partition(base_partition,validate_rows=False)
@@ -277,7 +278,7 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
         except BlockingIOError as error:raise ContractError("concurrent member writer") from error
         attempt=Path(tempfile.mkdtemp(prefix=f".{output.name}.attempt-",dir=output.parent))
         try:
-            rows,underflows=_calculate(base_partition/"base.parquet",base_partition/"context.json",attempt/"features.parquet",attempt/"support.parquet",config,batch_size)
+            rows,underflows=_calculate(base_partition/"base.parquet",base_partition/"context.json",attempt/"features.parquet",attempt/"support.parquet",config,batch_size,timing=timing)
             if any(_file_snapshot(base_partition/name)!=value for name,value in frozen_base.items()):
                 raise ContractError("base/context changed during feature calculation")
             implementation=_implementation_identity()
@@ -296,7 +297,7 @@ def build_from_base(base_partition, output, *, config=DEFAULT_CONFIG, batch_size
     return BuildResult(digest(manifest["member"]),manifest["contract_identity"],output/"manifest.json",rows)
 
 
-def _calculate(base_path,context_path,feature_path,support_path,config,batch_size):
+def _calculate(base_path,context_path,feature_path,support_path,config,batch_size,*,timing=None):
     context=read_json(context_path)
     exact_breaks={source:set(context["instantaneous_breaks"].get(source,[]))|{x[0] for x in context["gaps"].get(source,[])} for source in ("quotes","trades")}
     interior_break_ends={source:{(x//NS+1)*NS for x in values if x%NS} for source,values in exact_breaks.items()}
@@ -332,6 +333,7 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
     underflows=0
     fw=pq.ParquetWriter(feature_path,fs,compression="zstd",compression_level=3)
     sw=pq.ParquetWriter(support_path,ss,compression="zstd",compression_level=3)
+    kernel_call_seconds=[]
     previous=None;first=None;last=None;processed_rows=0
 
     def numeric(batch,name,cast=None):
@@ -378,6 +380,7 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
        for age in AGES:
            age_values[age],age_valid[age]=numeric(batch,f"{age}_age_seconds")
            age_reasons[age],_=numeric(batch,f"{age}_age_reason_mask")
+       kernel_started=time.monotonic_ns()
        kernel_values,kernel_masks,kernel_support,quote_elapsed_rows,trade_elapsed_rows,batch_underflows=kernel.process(
            halt=np.asarray(halt),quote_status=np.asarray(qstatus),trade_status=np.asarray(tstatus),
            bid=np.asarray(bid),bid_valid=np.asarray(bid_valid),ask=np.asarray(ask),ask_valid=np.asarray(ask_valid),
@@ -388,6 +391,7 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
            bid_size_numerator=np.asarray(bid_size),bid_size_exposure=np.asarray(bid_size_duration,dtype=np.float64)/NS,
            ask_size_numerator=np.asarray(ask_size),ask_size_exposure=np.asarray(ask_size_duration,dtype=np.float64)/NS,
        )
+       kernel_call_seconds.append((time.monotonic_ns()-kernel_started)/1e9)
        underflows+=batch_underflows
        for i in range(batch.num_rows):
         halted=bool(halt[i]);qs=int(qstatus[i]);ts=int(tstatus[i]);row_end=int(end_ns[i])
@@ -444,6 +448,12 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
     expected_last=(member[0],member[1],context["coverage"]["end_ns"])
     if processed_rows!=expected_rows or first!=expected_first or last!=expected_last:
         raise ContractError("base coverage boundary mismatch during feature calculation")
+    if timing is not None:
+        timing.update({
+            "kernel_call_count":len(kernel_call_seconds),
+            "kernel_first_call_seconds":kernel_call_seconds[0] if kernel_call_seconds else None,
+            "kernel_subsequent_calls_seconds":sum(kernel_call_seconds[1:]),
+        })
     return processed_rows,underflows
 
 

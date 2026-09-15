@@ -183,28 +183,51 @@ def _worker_main(input_queue, result_queue, config_body, batch_size, parent_pid)
         task_id, key, pair_path, context_path, base, features = task
         base_manifest=Path(base)/"manifest.json"
         feature_manifest=Path(features)/"manifest.json"
+        member_started=time.monotonic_ns()
+        base_seconds=feature_seconds=verification_seconds=None
+        feature_timing={}
+        reused=base_manifest.is_file() and feature_manifest.is_file()
         try:
             # A prior committed pair is verified directly so restart does not
             # invoke the standalone feature verifier before the combined scan.
-            if base_manifest.is_file() and feature_manifest.is_file():
+            if reused:
                 _verify_reusable_base(
                     pair_path,context_path,base,config,validate_rows=False)
             else:
+                stage_started=time.monotonic_ns()
                 base_result = build_base_partition(
                     pair_path, context_path, base, config=config, batch_size=batch_size)
+                base_seconds=(time.monotonic_ns()-stage_started)/1e9
+                stage_started=time.monotonic_ns()
                 feature_result = build_from_base(
-                    base, features, config=config, batch_size=batch_size)
+                    base, features, config=config, batch_size=batch_size,
+                    timing=feature_timing)
+                feature_seconds=(time.monotonic_ns()-stage_started)/1e9
                 base_manifest=base_result.manifest_path
                 feature_manifest=feature_result.manifest_path
             output_bytes=_path_bytes(base)+_path_bytes(features)
+            member_timing={
+                "base_wall_seconds":base_seconds,
+                "feature_wall_seconds":feature_seconds,
+                "verification_wall_seconds":verification_seconds,
+                "member_wall_seconds":(time.monotonic_ns()-member_started)/1e9,
+                "completed_output_reused":reused,
+                **feature_timing,
+            }
             result_queue.put((
                 "built",task_id,key,str(base_manifest),str(feature_manifest),
-                output_bytes,None,
+                output_bytes,None,member_timing,
             ))
+            stage_started=time.monotonic_ns()
             verify_member_partitions(base,features,config=config)
+            verification_seconds=(time.monotonic_ns()-stage_started)/1e9
+            member_timing.update({
+                "verification_wall_seconds":verification_seconds,
+                "member_wall_seconds":(time.monotonic_ns()-member_started)/1e9,
+            })
             result_queue.put((
                 "verified",task_id,key,str(base_manifest),str(feature_manifest),
-                output_bytes,None,
+                output_bytes,None,member_timing,
             ))
         except BaseException as error:
             detail = "".join(
@@ -215,6 +238,14 @@ def _worker_main(input_queue, result_queue, config_body, batch_size, parent_pid)
                 task_id,key,str(base_manifest) if base_manifest.is_file() else None,
                 str(feature_manifest) if feature_manifest.is_file() else None,
                 _path_bytes(base)+_path_bytes(features) if committed else 0,detail,
+                {
+                    "base_wall_seconds":base_seconds,
+                    "feature_wall_seconds":feature_seconds,
+                    "verification_wall_seconds":verification_seconds,
+                    "member_wall_seconds":(time.monotonic_ns()-member_started)/1e9,
+                    "completed_output_reused":reused,
+                    **feature_timing,
+                },
             ))
 
 
@@ -288,6 +319,7 @@ def run_members(plan, descriptors, plan_sha256, connection, started):
     pending = iter(ordered)
     active, task_ids = {}, {}
     built = verified = verification_failed = committed_bytes = 0
+    member_timings = {}
     baseline = {
         f"{member['session_date']}/{member['symbol']}":
         sum(_path_bytes(path) for path in member_paths(plan, member))
@@ -331,7 +363,8 @@ def run_members(plan, descriptors, plan_sha256, connection, started):
             except queue.Empty:
                 continue
             (phase,task_id,key,base_manifest,feature_manifest,
-             output_bytes,error)=result
+             output_bytes,error,member_timing)=result
+            member_timings[key]=member_timing
             slot=next((slot for slot,value in task_ids.items() if value==task_id),None)
             if slot is None:raise ContractError("worker returned unknown task")
             if phase=="built":
@@ -391,4 +424,5 @@ def run_members(plan, descriptors, plan_sha256, connection, started):
         "process_tree_cpu_seconds": max(0.0, cpu_seconds - cpu_start),
         "process_tree_read_bytes": max(0, read_bytes - read_start),
         "process_tree_write_bytes": max(0, write_bytes - write_start),
+        "member_timings": member_timings,
     }
