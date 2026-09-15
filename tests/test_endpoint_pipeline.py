@@ -683,6 +683,48 @@ def test_plan_rejects_duplicate_members(tmp_path):
                     tmp_path / "plan")
 
 
+def test_v2_measurement_accepts_bounded_full_session_plan_sample():
+    from tape_data_product.calculate import _validate_measurement
+    members = [
+        {"session_date": "2026-07-31", "symbol": "KPTI"},
+        {"session_date": "2026-05-07", "symbol": "GLE"},
+        {"session_date": "2026-06-12", "symbol": "SPCX"},
+    ]
+    release = {"source_revision": "a" * 40, "wheel_sha256": "b" * 64}
+    guards = {
+        "workers": 1, "threads": 1, "batch_size": 4096,
+        "cpu_quota_percent": 800, "tasks_max": 128,
+        "memory_max_bytes": 8 * 1024 ** 3, "memory_swap_max_bytes": 0,
+        "process_tree_rss_stop_bytes": 8 * 1024 ** 3,
+        "runtime_max_seconds": 2700, "read_limit_bytes": 2 * 1024 ** 3,
+        "output_scratch_limit_bytes": 8 * 1024 ** 3,
+        "max_decoded_raw_rows": 12_000_000,
+    }
+    phase = {
+        "decoded_raw_rows": 11_627_568, "read_bytes": 800_000_000,
+        "peak_rss_bytes": 800_000_000, "wall_seconds": 400.0,
+        "disk_bytes": {"output": 50_000_000, "scratch_peak": 20_000_000},
+        "guards": guards,
+    }
+    artifacts = [{
+        "member": f"{m['session_date']}/{m['symbol']}",
+        "source_pair_sha256": "1" * 64, "context_sha256": "2" * 64,
+        "base_manifest_sha256": "3" * 64, "feature_manifest_sha256": "4" * 64,
+        "rows": 57_600,
+    } for m in members]
+    core = {
+        "version": "tape_representative_measurement_v2", "status": "accepted",
+        "kind": "representative_measurement", "source_revision": release["source_revision"],
+        "wheel_sha256": release["wheel_sha256"], "config_sha256": digest(DEFAULT_CONFIG.to_dict()),
+        "sample": {"members": [x["member"] for x in artifacts], "coverage_seconds_per_member": 57_600},
+        "rows": {"base": 172_800, "features": 172_800, "support": 172_800},
+        "artifacts": artifacts, "phases": {"build": phase, "verification": phase},
+        "independent_reconstruction": {"base_all_fields": "passed", "features_explicit_histories": "passed", "support_all_fields": "passed"},
+    }
+    body = {**core, "measurement_id": digest(core), "readiness_decision_sha256": "5" * 64}
+    _validate_measurement(body, {"members": members, "config": DEFAULT_CONFIG.to_dict()}, release)
+
+
 def test_aggregate_rss_limit_stops_all_active_members(tmp_path):
     plan, inventory, _ = _parallel_plan(
         tmp_path, [("M00", 2000, 10), ("M01", 2000, 10)], 2, "rss-stop")

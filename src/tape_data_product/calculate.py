@@ -145,7 +145,7 @@ def _validate_measurement(body,plan,release):
     fields={"version","status","kind","measurement_id","source_revision","wheel_sha256","config_sha256",
             "sample","rows","artifacts","phases","independent_reconstruction","readiness_decision_sha256"}
     if (type(body) is not dict or set(body)!=fields
-            or body["version"]!="tape_representative_measurement_v1"
+            or body["version"] not in {"tape_representative_measurement_v1","tape_representative_measurement_v2"}
             or body["status"]!="accepted" or body["kind"]!="representative_measurement"
             or body["source_revision"]!=release.get("source_revision")
             or body["wheel_sha256"]!=release.get("wheel_sha256")
@@ -155,11 +155,22 @@ def _validate_measurement(body,plan,release):
             or type(body["readiness_decision_sha256"]) is not str or not re.fullmatch(r"[0-9a-f]{64}",body["readiness_decision_sha256"])):
         raise ContractError("measurement identity")
     sample=body["sample"]
-    if (sample!={"members":["2026-09-02/KDP","2026-09-02/NVDA"],"coverage_seconds_per_member":720}):
-        raise ContractError("measurement sample")
+    if body["version"]=="tape_representative_measurement_v1":
+        if sample!={"members":["2026-09-02/KDP","2026-09-02/NVDA"],"coverage_seconds_per_member":720}:
+            raise ContractError("measurement sample")
+    else:
+        plan_members={f"{member['session_date']}/{member['symbol']}" for member in plan["members"]}
+        if (type(sample) is not dict or set(sample)!={"members","coverage_seconds_per_member"}
+                or type(sample["members"]) is not list or not 1<=len(sample["members"])<=8
+                or len(sample["members"])!=len(set(sample["members"]))
+                or any(type(member) is not str or member not in plan_members for member in sample["members"])
+                or type(sample["coverage_seconds_per_member"]) is not int
+                or not 1<=sample["coverage_seconds_per_member"]<=57_600):
+            raise ContractError("measurement sample")
     rows=body["rows"]
+    expected_rows=len(sample["members"])*sample["coverage_seconds_per_member"]
     if (type(rows) is not dict or set(rows)!={"base","features","support"}
-            or rows!={"base":1440,"features":1440,"support":1440}):
+            or rows!={"base":expected_rows,"features":expected_rows,"support":expected_rows}):
         raise ContractError("measurement rows")
     if body["independent_reconstruction"]!={"base_all_fields":"passed","features_explicit_histories":"passed","support_all_fields":"passed"}:
         raise ContractError("measurement independent reconstruction")
@@ -168,7 +179,7 @@ def _validate_measurement(body,plan,release):
         raise ContractError("measurement artifacts")
     for artifact in artifacts:
         if (set(artifact)!={"member","source_pair_sha256","context_sha256","base_manifest_sha256","feature_manifest_sha256","rows"}
-                or artifact["rows"]!=720
+                or artifact["rows"]!=sample["coverage_seconds_per_member"]
                 or any(type(artifact[x]) is not str or not re.fullmatch(r"[0-9a-f]{64}",artifact[x]) for x in
                        ("source_pair_sha256","context_sha256","base_manifest_sha256","feature_manifest_sha256"))):
             raise ContractError("measurement artifacts")
@@ -177,14 +188,32 @@ def _validate_measurement(body,plan,release):
     for phase in phases.values():
         if type(phase) is not dict or set(phase)!={"decoded_raw_rows","read_bytes","peak_rss_bytes","wall_seconds","disk_bytes","guards"}:raise ContractError("measurement phase")
         disk=phase["disk_bytes"];guards=phase["guards"]
+        guard_fields={"workers","threads","batch_size","cpu_quota_percent","tasks_max",
+                      "memory_max_bytes","memory_swap_max_bytes","process_tree_rss_stop_bytes",
+                      "runtime_max_seconds","read_limit_bytes","output_scratch_limit_bytes",
+                      "max_decoded_raw_rows"}
+        v1_guards={"workers":1,"threads":1,"batch_size":4096,"cpu_quota_percent":200,"tasks_max":64,
+            "memory_max_bytes":1610612736,"memory_swap_max_bytes":0,"process_tree_rss_stop_bytes":1073741824,
+            "runtime_max_seconds":600,"read_limit_bytes":1073741824,"output_scratch_limit_bytes":2147483648,
+            "max_decoded_raw_rows":2000000}
+        guards_valid=(guards==v1_guards if body["version"]=="tape_representative_measurement_v1" else
+            type(guards) is dict and set(guards)==guard_fields
+            and type(guards["workers"]) is int and 1<=guards["workers"]<=8
+            and guards["threads"]==1 and guards["batch_size"]==4096
+            and type(guards["cpu_quota_percent"]) is int and 1<=guards["cpu_quota_percent"]<=800
+            and type(guards["tasks_max"]) is int and guards["tasks_max"]>=guards["workers"]
+            and type(guards["memory_max_bytes"]) is int and 0<guards["memory_max_bytes"]<=8*1024**3
+            and guards["memory_swap_max_bytes"]==0
+            and type(guards["process_tree_rss_stop_bytes"]) is int and 0<guards["process_tree_rss_stop_bytes"]<=guards["memory_max_bytes"]
+            and type(guards["runtime_max_seconds"]) in (int,float) and 0<guards["runtime_max_seconds"]<=2700
+            and type(guards["read_limit_bytes"]) is int and guards["read_limit_bytes"]>0
+            and type(guards["output_scratch_limit_bytes"]) is int and 0<guards["output_scratch_limit_bytes"]<=8*1024**3
+            and type(guards["max_decoded_raw_rows"]) is int and guards["max_decoded_raw_rows"]>0)
         if (type(disk) is not dict or set(disk)!={"output","scratch_peak"} or any(type(disk[x]) is not int or disk[x]<0 for x in disk)
                 or type(phase["read_bytes"]) is not int or phase["read_bytes"]<=0
                 or type(phase["peak_rss_bytes"]) is not int or phase["peak_rss_bytes"]<=0
                 or type(phase["wall_seconds"]) not in (int,float) or not math.isfinite(phase["wall_seconds"]) or phase["wall_seconds"]<=0
-                or guards!={"workers":1,"threads":1,"batch_size":4096,"cpu_quota_percent":200,"tasks_max":64,
-                    "memory_max_bytes":1610612736,"memory_swap_max_bytes":0,"process_tree_rss_stop_bytes":1073741824,
-                    "runtime_max_seconds":600,"read_limit_bytes":1073741824,"output_scratch_limit_bytes":2147483648,
-                    "max_decoded_raw_rows":2000000}
+                or not guards_valid
                 or type(phase["decoded_raw_rows"]) is not int or phase["decoded_raw_rows"]<0
                 or phase["decoded_raw_rows"]>guards["max_decoded_raw_rows"]
                 or phase["read_bytes"]>guards["read_limit_bytes"]
@@ -212,7 +241,7 @@ def _preflight(plan):
             if sha256_file(plan["transfer_manifest_path"])[0]!=plan["transfer_manifest_sha256"]:raise ContractError("changed")
             transfer_members,objects,transfer_bytes,transfer_records,kind_summary,transfer_states=_transfer_summary(plan["transfer_manifest_path"])
             expected={f"{m['session_date']}/{m['symbol']}" for m in plan["members"]}
-            if (transfer_members!=expected or objects!=plan.get("transfer_expected_objects") or transfer_bytes!=plan.get("transfer_expected_bytes")
+            if (not expected.issubset(transfer_members) or objects!=plan.get("transfer_expected_objects") or transfer_bytes!=plan.get("transfer_expected_bytes")
                     or kind_summary!=plan.get("transfer_kind_summary")):
                 blockers.append("transfer_inventory_reconciliation_failed")
         except (OSError,ValueError,ContractError,json.JSONDecodeError):blockers.append("transfer_inventory_reconciliation_failed")
