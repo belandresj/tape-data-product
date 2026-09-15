@@ -286,20 +286,25 @@ def _calculate(base_path,context_path,feature_path,support_path,config,batch_siz
 
 
 def verify_feature_partition(root,base_partition,*,config=DEFAULT_CONFIG):
-    root=Path(root);base_partition=Path(base_partition);manifest=read_json(root/"manifest.json")
+    root=Path(root);base_partition=Path(base_partition);base_manifest=verify_base_partition(base_partition);manifest=read_json(root/"manifest.json")
     required={"manifest_version","member","coverage","inputs","source_units","contract_identity","contract_config","implementation_identity","outputs","validation","complete"}
     if set(manifest)!=required or not manifest["complete"]:raise ContractError("invalid feature manifest")
     if FeatureConfig.from_dict(manifest["contract_config"])!=config:raise ContractError("feature stored config mismatch")
     if manifest["contract_identity"]!=contract_identity(config):raise ContractError("feature config identity mismatch")
     if manifest["implementation_identity"]!=_implementation_identity():raise ContractError("feature implementation identity mismatch")
     if manifest["inputs"]["base_manifest_sha256"]!=sha256_file(base_partition/"manifest.json")[0]:raise ContractError("feature/base identity mismatch")
+    if (manifest["member"]!=base_manifest["member"] or manifest["coverage"]!=base_manifest["coverage"]
+            or manifest["source_units"]!=base_manifest["source_units"]
+            or manifest["inputs"].get("base_compatibility_sha256")!=base_manifest["base_compatibility"]["sha256"]):
+        raise ContractError("feature/base member or coverage mismatch")
     records={r["path"]:r for r in manifest["outputs"]}
     if set(records)!={"features.parquet","support.parquet"}:raise ContractError("feature companions missing")
     schemas={"features.parquet":feature_schema(config),"support.parquet":support_schema(config)}
     key_iterators=[]
     for name,kind in (("features.parquet","features"),("support.parquet","support")):
         path=verify_output(root,records[name]);pf=pq.ParquetFile(path)
-        if records[name]["schema_sha256"]!=schema_hash(schemas[name]):raise ContractError("feature companion schema identity mismatch")
+        if (records[name]["schema_sha256"]!=schema_hash(schemas[name])
+                or records[name]["rows"]!=manifest["coverage"]["expected_rows"]):raise ContractError("feature companion declaration mismatch")
         if not pf.schema_arrow.equals(schemas[name],check_metadata=True) or pf.metadata.num_rows!=manifest["coverage"]["expected_rows"]:raise ContractError("feature companion schema/count mismatch")
         def keys(parquet_file, table_kind):
             previous=None
@@ -307,7 +312,14 @@ def verify_feature_partition(root,base_partition,*,config=DEFAULT_CONFIG):
                 previous=validate_batch(batch,table_kind,config=config,previous_key=previous)
                 yield from zip(*(batch.column(i).to_pylist() for i in range(3)))
         key_iterators.append(keys(pf,kind))
+    base_pf=pq.ParquetFile(base_partition/"base.parquet")
+    def base_keys():
+        previous=None
+        for batch in base_pf.iter_batches(batch_size=4096,use_threads=False):
+            previous=validate_batch(batch,"base",previous_key=previous)
+            yield from zip(*(batch.column(i).to_pylist() for i in range(3)))
+    key_iterators.append(base_keys())
     sentinel=object()
-    for left,right in zip_longest(*key_iterators,fillvalue=sentinel):
-        if left is sentinel or right is sentinel or left!=right:raise ContractError("feature/support key mismatch")
+    for values in zip_longest(*key_iterators,fillvalue=sentinel):
+        if sentinel in values or len(set(values))!=1:raise ContractError("base/feature/support key mismatch")
     return manifest

@@ -126,6 +126,22 @@ def load_member_descriptors(source_pair, member_context):
     continuity_body=read_json(continuity_path)
     if continuity_body!={"version":"source_continuity_v1","member":member,"gaps":context["gaps"],"instantaneous_breaks":context["instantaneous_breaks"]}:
         raise ContractError("continuity evidence does not support context")
+    seed=context["seed"]
+    if seed=={"basis":"unavailable"} or seed=={"basis":"verified_empty"}:
+        pass
+    elif type(seed) is dict and set(seed)=={"basis","path","sha256"} and seed["basis"]=="verified_interval":
+        seed_path=evidence_root/safe_relative(seed["path"])
+        if sha256_file(seed_path)[0]!=seed["sha256"]:raise ContractError("seed evidence identity mismatch")
+        body=read_json(seed_path)
+        if (set(body)!={"version","member","start_ns","end_ns","quote_object_sha256","terminal_complete","latest_event"}
+                or body["version"]!="pre_session_seed_v1" or body["member"]!=member
+                or body["start_ns"]!=session_start-300*NS or body["end_ns"]!=session_start
+                or body["quote_object_sha256"]!=pair["streams"]["quotes"]["sha256"] or body["terminal_complete"] is not True
+                or type(body["latest_event"]) is not dict or set(body["latest_event"])!={"sip_timestamp","sequence_number"}
+                or any(type(body["latest_event"][x]) is not int for x in body["latest_event"])):
+            raise ContractError("seed evidence does not support declared interval/object")
+    else:
+        raise ContractError("verified seed requires identity-bound evidence")
     return pair, context, root, units
 
 

@@ -202,12 +202,13 @@ def build_base_partition(source_pair, member_context, output, *, config=DEFAULT_
     integer(batch_size, "batch size", 1, 25000)
     if not isinstance(config, FeatureConfig): raise ContractError("invalid feature config")
     pair, context, root, units = load_member_descriptors(source_pair, member_context)
+    source_pair_sha=sha256_file(source_pair)[0];member_context_sha=sha256_file(member_context)[0]
     output = Path(output)
     if (output / "manifest.json").exists():
         manifest = verify_base_partition(output)
         implementation = _implementation_identity()
-        expected_inputs = {"source_pair_sha256":sha256_file(source_pair)[0],
-                           "context_sha256":sha256_file(member_context)[0],
+        expected_inputs = {"source_pair_sha256":source_pair_sha,
+                           "context_sha256":member_context_sha,
                            "streams":pair["streams"]}
         expected_compatibility = _base_compatibility(pair, config, implementation)
         if (manifest["member"] != {"symbol":pair["symbol"], "session_date":pair["session_date"]}
@@ -234,12 +235,14 @@ def build_base_partition(source_pair, member_context, output, *, config=DEFAULT_
             records = [output_record(attempt/"base.parquet", rows=rows, schema_sha256=schema_hash(BASE_SCHEMA)),
                        output_record(attempt/"context.json", rows=rows, schema_sha256=digest(context))]
             manifest = {"manifest_version":"tape_member_manifest_v1", "member":{"symbol":pair["symbol"],"session_date":pair["session_date"]},
-                "coverage":context["coverage"], "inputs":{"source_pair_sha256":sha256_file(source_pair)[0],"context_sha256":sha256_file(member_context)[0],
+                "coverage":context["coverage"], "inputs":{"source_pair_sha256":source_pair_sha,"context_sha256":member_context_sha,
                     "streams":pair["streams"]}, "source_units":pair["source_units"], "contract_identity":contract_identity(config),
                 "base_compatibility":_base_compatibility(pair, config, implementation), "implementation_identity":implementation,
                 "contract_config":config.to_dict(), "outputs":records, "validation":{"integrity":"passed","consumption":"consumption_verified","independent_reconstruction":"pending"}, "complete":True}
             write_atomic_json(attempt/"manifest.json", manifest)
             _verify_source(pair, root)
+            if sha256_file(source_pair)[0]!=source_pair_sha or sha256_file(member_context)[0]!=member_context_sha:
+                raise ContractError("source/context descriptor changed during replay")
             verify_base_partition(attempt)
             os.replace(attempt, output)
         except Exception:
@@ -254,9 +257,17 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
     qnext, tnext = next(quote_events, None), next(trade_events, None)
     state = QuoteState(); last_trade=None; quote_cont=trade_cont=0; quote_broken=trade_broken=False; was_halt=False
     # Verified seed is explicitly opted into; otherwise consume but do not apply pre-session quotes.
+    last_seed_event=None
     while qnext is not None and qnext["sip_timestamp"] < start:
         if context["seed"].get("basis") == "verified_interval": _apply_quote(state,qnext,multiplier)
+        if context["seed"].get("basis") == "verified_interval": last_seed_event=qnext
         qnext=next(quote_events,None)
+    if context["seed"].get("basis") == "verified_interval":
+        evidence=read_json(Path(pair["evidence_root"])/context["seed"]["path"])["latest_event"]
+        actual=None if last_seed_event is None else {"sip_timestamp":last_seed_event["sip_timestamp"],"sequence_number":last_seed_event["sequence_number"]}
+        if actual!=evidence:raise ContractError("seed evidence/latest event mismatch")
+        if state.price_valid:
+            state.origin_ns=start;state.last_change_ns=None
     buffers=[]; writer=pq.ParquetWriter(path, BASE_SCHEMA, compression="zstd", compression_level=3)
     try:
         for left in range(start,end,NS):
@@ -267,7 +278,8 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
             qbreaks=[x for x in context["instantaneous_breaks"].get("quotes",[]) if left<=x<right] + [a for a,b in qgaps if left<=a<right]
             tbreaks=[x for x in context["instantaneous_breaks"].get("trades",[]) if left<=x<right] + [a for a,b in tgaps if left<=a<right]
             quote_break_in_second=bool(qbreaks);trade_break_in_second=bool(tbreaks)
-            if halt and not was_halt:
+            halt_entry=halt and not was_halt
+            if halt_entry:
                 state=QuoteState(); last_trade=None; quote_cont+=1; trade_cont+=1; quote_broken=trade_broken=True
             qstatus=SourceStatus.ACCEPTED if _point_in(qints,right-1) and not _point_in(qgaps,right-1) else SourceStatus.UNAVAILABLE
             tstatus=SourceStatus.ACCEPTED if _point_in(tints,right-1) and not _point_in(tgaps,right-1) else SourceStatus.UNAVAILABLE
@@ -331,7 +343,7 @@ def _replay(pair, context, root, multiplier, path, config, batch_size):
                  "midpoint_observation_start_ns":state.origin_ns if midpoint_status!=MidpointAgeStatus.UNOBSERVABLE and not halt else None,
                  "midpoint_age_lower_bound_seconds":(right-state.origin_ns)/NS if midpoint_status==MidpointAgeStatus.NO_CHANGE_OBSERVED and not halt else None,
                  "quote_source_status":int(qstatus),"trade_source_status":int(tstatus),"quote_observed_duration_ns":qobs,"trade_observed_duration_ns":tobs,
-                 "quote_continuity_id":quote_cont,"trade_continuity_id":trade_cont,"quote_continuity_break_in_second":bool(quote_break_in_second or halt),"trade_continuity_break_in_second":bool(trade_break_in_second or halt),
+                 "quote_continuity_id":quote_cont,"trade_continuity_id":trade_cont,"quote_continuity_break_in_second":bool(quote_break_in_second or halt_entry),"trade_continuity_break_in_second":bool(trade_break_in_second or halt_entry),
                  "halt_active":halt,"halt_id":halts[0]["id"] if halt else None}
             buffers.append(row)
             was_halt=halt
@@ -371,7 +383,9 @@ def verify_base_partition(root):
             or manifest["implementation_identity"]!=_implementation_identity()):
         raise ContractError("base manifest/context/implementation mismatch")
     base=verify_output(root,records["base.parquet"])
-    if records["base.parquet"]["schema_sha256"]!=schema_hash(BASE_SCHEMA):raise ContractError("base schema identity mismatch")
+    if (records["base.parquet"]["schema_sha256"]!=schema_hash(BASE_SCHEMA)
+            or records["base.parquet"]["rows"]!=manifest["coverage"]["expected_rows"]
+            or records["context.json"]["rows"]!=manifest["coverage"]["expected_rows"]):raise ContractError("base output declaration mismatch")
     pf=pq.ParquetFile(base)
     if not pf.schema_arrow.equals(BASE_SCHEMA,check_metadata=True) or pf.metadata.num_rows!=manifest["coverage"]["expected_rows"]:
         raise ContractError("base schema/row count mismatch")

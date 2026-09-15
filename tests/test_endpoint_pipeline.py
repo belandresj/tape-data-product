@@ -2,13 +2,14 @@ from __future__ import annotations
 import hashlib,json
 from dataclasses import replace
 import math
+import sys
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from tape_data_product.contracts import DEFAULT_CONFIG
+from tape_data_product.contracts import DEFAULT_CONFIG,contract_identity
 from tape_data_product.contracts.config import EWView,FeatureConfig
 from tape_data_product.contracts.config import digest
 from tape_data_product.contracts.policy import NS,session_bounds
@@ -18,6 +19,9 @@ from tape_data_product.integrity import sha256_file
 from tape_data_product.replay.builder import build_base_partition,verify_base_partition
 from tape_data_product.replay.admission import admit_inventory
 from tape_data_product.calculate import create_plan,run_plan
+from tape_data_product.replay.builder import _implementation_identity as base_implementation_identity
+from tape_data_product.features.endpoint_ew import _implementation_identity as feature_implementation_identity
+from tape_data_product.integrity import write_atomic_json
 
 QSCHEMA=pa.schema([pa.field("sip_timestamp",pa.int64()),pa.field("sequence_number",pa.int64()),pa.field("bid_price",pa.float64()),pa.field("ask_price",pa.float64()),pa.field("bid_size",pa.float64()),pa.field("ask_size",pa.float64()),pa.field("conditions",pa.list_(pa.int64())),pa.field("indicators",pa.list_(pa.int64()))])
 TSCHEMA=pa.schema([pa.field("sip_timestamp",pa.int64()),pa.field("sequence_number",pa.int64()),pa.field("participant_timestamp",pa.int64()),pa.field("price",pa.float64()),pa.field("decimal_size",pa.string()),pa.field("size",pa.float64()),pa.field("conditions",pa.list_(pa.int64())),pa.field("correction",pa.int64())])
@@ -105,6 +109,7 @@ def test_subsecond_halt_nulls_zero_support_activity(tmp_path):
     assert row["halt_active"] and row["activity_valid_duration_ns"]==0
     assert row["trade_count_1s"] is None and row["share_volume_1s"] is None and row["dollar_volume_1s_usd"] is None
     assert rows[1]["halt_active"] and rows[0]["quote_continuity_id"]==rows[1]["quote_continuity_id"]==1
+    assert not rows[1]["quote_continuity_break_in_second"] and not rows[1]["trade_continuity_break_in_second"]
 
 def test_alternate_features_require_no_raw_access(tmp_path):
     pair,context=fixture(tmp_path,100);base=tmp_path/"base";build_base_partition(pair,context,base)
@@ -175,3 +180,30 @@ def test_numeric_and_contradictory_locks(tmp_path):
     base=tmp_path/"base";build_base_partition(pair,context,base);rows=pq.read_table(base/"base.parquet").to_pylist()
     assert rows[0]["spread_integral_bps_seconds"]==0 and rows[0]["spread_valid_duration_ns"]==NS
     assert rows[1]["bid_end_usd"]==99 and rows[1]["price_end_reason_mask"]==0 and rows[1]["spread_valid_duration_ns"]==0
+
+def test_verified_seed_origin_starts_at_session_and_requires_evidence(tmp_path):
+    pair,context=fixture(tmp_path,6);start,_=session_bounds("2026-09-02");raw=tmp_path/"raw"
+    quotes=[{"sip_timestamp":start-NS,"sequence_number":1,"bid_price":99.,"ask_price":101.,"bid_size":10.,"ask_size":20.,"conditions":[],"indicators":[]}]
+    _write(raw/"quotes.parquet",QSCHEMA,quotes);p=json.loads(pair.read_text());p["streams"]["quotes"].update(_records(raw/"quotes.parquet"));unit=tmp_path/"evidence"/"quote-units.json";body=json.loads(unit.read_text());body["object_sha256"]=p["streams"]["quotes"]["sha256"];unit.write_text(json.dumps(body));p["source_units"]["quote_size_evidence_sha256"]=sha256_file(unit)[0];pair.write_text(json.dumps(p))
+    c=json.loads(context.read_text());c["seed"]={"basis":"verified_interval"};context.write_text(json.dumps(c))
+    with pytest.raises(ValueError,match="identity-bound evidence"):build_base_partition(pair,context,tmp_path/"rejected")
+    seed=tmp_path/"evidence"/"seed.json";seed.write_text(json.dumps({"version":"pre_session_seed_v1","member":"2026-09-02/SYN","start_ns":start-300*NS,"end_ns":start,"quote_object_sha256":p["streams"]["quotes"]["sha256"],"terminal_complete":True,"latest_event":{"sip_timestamp":start-NS,"sequence_number":1}}));c["seed"]={"basis":"verified_interval","path":seed.name,"sha256":sha256_file(seed)[0]};context.write_text(json.dumps(c))
+    base=tmp_path/"base";build_base_partition(pair,context,base);row=pq.read_table(base/"base.parquet").to_pylist()[0]
+    assert row["midpoint_observation_start_ns"]==start and row["midpoint_age_lower_bound_seconds"]==1
+
+def test_manifest_declared_rows_are_verified(tmp_path):
+    pair,context=fixture(tmp_path,6);base=tmp_path/"base";build_base_partition(pair,context,base)
+    manifest=json.loads((base/"manifest.json").read_text());manifest["outputs"][0]["rows"]+=1;write_atomic_json(base/"manifest.json",manifest)
+    with pytest.raises(ValueError,match="output declaration"):verify_base_partition(base)
+
+def test_one_worker_plan_executes_base_then_features(tmp_path):
+    pair,context=fixture(tmp_path,70);wheel=tmp_path/"candidate.whl";wheel.write_bytes(b"synthetic-wheel-identity")
+    completion=tmp_path/"transfer-complete.json";completion.write_text(json.dumps({"status":"complete","expected_members":1}))
+    member={"session_date":"2026-09-02","symbol":"SYN"}
+    release={"source_revision":"a"*40,"wheel_path":str(wheel),"wheel_sha256":sha256_file(wheel)[0],"executable":sys.executable,"contract_identity":contract_identity(),"base_implementation_identity":base_implementation_identity()["sha256"],"feature_implementation_identity":feature_implementation_identity()["sha256"]}
+    inventory={"members":[member],"transfer_complete":True,"transfer_completion":{"path":str(completion),"sha256":sha256_file(completion)[0]},"measurement_references":["synthetic_fixture"],"release":release,"base_root":str(tmp_path/"run-base"),"feature_root":str(tmp_path/"run-features"),"ledger_path":str(tmp_path/"run-ledger.sqlite")}
+    admissions={"findings":[{"member":"2026-09-02/SYN","state":"metadata_admitted","source_pair_path":str(pair),"member_context_path":str(context)}]};limits={"workers":1,"batch_size":7,"disk_reserve_bytes":0,"scratch_cap_bytes":0}
+    for name,value in (("inventory-run.json",inventory),("admissions-run.json",admissions),("config-run.json",DEFAULT_CONFIG.to_dict()),("limits-run.json",limits)):(tmp_path/name).write_text(json.dumps(value))
+    plan=create_plan(tmp_path/"inventory-run.json",tmp_path/"admissions-run.json",tmp_path/"config-run.json",tmp_path/"limits-run.json",tmp_path/"run-plan")
+    result=run_plan(plan["plan"],plan["sha256"]);assert result["status"]=="complete" and result["members"]==1
+    assert (tmp_path/"run-base/session_date=2026-09-02/symbol=SYN/manifest.json").exists() and (tmp_path/"run-features/session_date=2026-09-02/symbol=SYN/manifest.json").exists()
