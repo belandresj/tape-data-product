@@ -1,6 +1,6 @@
 # Feature readiness checkpoint — 2026-09-14 Pacific
 
-The transfer, bounded KDP/NVDA acceptance, and a three-member full-session benchmark are complete, but the full feature build is not ready for execution. The [full-session benchmark](full_session_feature_benchmark.md) projects about 106.7 one-worker build hours and 99.7 GB mean compressed output, exceeding both the four-to-five-hour objective and available disk headroom above the 80 GiB reserve. No full-corpus job was started. Historical vendor retrieval completeness is recorded as unverified under the owner's accepted policy.
+The transfer, bounded KDP/NVDA acceptance, and a three-member full-session benchmark are complete, but the full feature build is not ready for execution. The original [full-session benchmark](full_session_feature_benchmark.md) projected about 106.7 one-worker build hours. The subsequent [fresh-build validation optimization](fresh_build_validation_optimization.md) reduced the same three-member projection to about 64.2 hours, or 8.0 hours under hypothetical perfect eight-worker scaling; the four-to-five-hour objective still requires calculation-loop optimization and measured multi-worker scaling. Mean compressed output remains 99.7 GB under the original sample. No full-corpus job was started. Historical vendor retrieval completeness is recorded as unverified under the owner's accepted policy.
 
 ## Implemented performance improvement
 
@@ -47,9 +47,9 @@ The calculation preflight now parses the actual raw-migration completion record 
 
 ## Remaining steps before a manual full run
 
-1. Optimize the measured fixed-row feature bottleneck and physical storage footprint, then repeat the same bounded full-session workload. Base replay's per-event Python cost is the next measured target.
+1. Move the remaining per-row feature state and per-event replay loops out of interpreted Python, then repeat the same bounded full-session workload. Redundant fresh-build validation passes are already removed; feature calculation and busy-member raw replay are now the measured targets.
 2. Resolve corpus admission evidence, including halt context for 863 members outside the retained historical release and per-member consumption checks. Missing original pagination receipts remain non-blocking but unverified under the accepted policy.
-3. If the five-hour target remains required after single-worker optimization, implement and test production multi-worker disjoint-member ownership, atomic outputs and ledger/restart behavior. Ideal four-worker scaling of the current build is still about 26.7 hours and is unmeasured.
+3. Implement and measure production multi-worker disjoint-member ownership, atomic outputs and ledger/restart behavior across 1/2/4/6/8 workers. Ideal eight-worker scaling of the current optimized build is about 8.0 hours and remains unmeasured.
 4. Only after runtime, storage, admission, and concurrency evidence pass should a new immutable plan be tied to the selected installed wheel and an explicit readiness decision. Obtain the full-run confirmation required by AGENTS.md. The old 59d3abc plan remains blocked and must not be edited in place.
 
 ## Private evidence and reproduction
