@@ -112,6 +112,27 @@ def test_predicate_boundaries_equality_intersection_and_validation():
             predicates(raw)
 
 
+def test_illustrative_endpoint_rms_to_spread_rule():
+    descriptor = ({
+        "name": "midpoint_rms_5s_to_spread_hl30s",
+        "reason_mask": "midpoint_rms_5s_to_spread_hl30s_reason_mask",
+        "sources": ["quote"],
+    },)
+    selected = compile_predicates([{
+        "field": "midpoint_rms_5s_to_spread_hl30s",
+        "operator": ">",
+        "value": 2,
+    }], descriptor)
+    assert selected.evaluate({
+        "midpoint_rms_5s_to_spread_hl30s": 2.0,
+        "midpoint_rms_5s_to_spread_hl30s_reason_mask": 0,
+    }).status == "nonmatching"
+    assert selected.evaluate({
+        "midpoint_rms_5s_to_spread_hl30s": 2.0001,
+        "midpoint_rms_5s_to_spread_hl30s_reason_mask": 0,
+    }).status == "matching"
+
+
 def test_eligibility_uses_only_predicate_dependencies_and_preserves_zero():
     selected = predicates([
         {"field": "quote_metric", "operator": ">=", "value": 0},
