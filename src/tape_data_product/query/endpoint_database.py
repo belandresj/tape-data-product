@@ -385,13 +385,13 @@ def open_tape_database(
     if temp_directory is None:
         temporary = tempfile.TemporaryDirectory(prefix="tape-duckdb-")
         temp_directory = temporary.name
+        max_temp_directory_size = "0B"
     else:
         temp_directory = str(Path(temp_directory).resolve())
         Path(temp_directory).mkdir(parents=True, exist_ok=True)
-    if shutil.disk_usage(temp_directory).free < 20 * 1024**3:
-        if temporary is not None:
-            temporary.cleanup()
-        raise ContractError("DuckDB temp directory violates 20 GiB free-disk reserve")
+        max_temp_directory_size = "1GiB"
+        if shutil.disk_usage(temp_directory).free < 20 * 1024**3:
+            raise ContractError("DuckDB temp directory violates 20 GiB free-disk reserve")
     connection = None
     try:
         connection = duckdb.connect(
@@ -400,7 +400,7 @@ def open_tape_database(
                 "threads": "1",
                 "memory_limit": memory_limit,
                 "temp_directory": temp_directory,
-                "max_temp_directory_size": "1GiB",
+                "max_temp_directory_size": max_temp_directory_size,
             },
         )
         _configure_views(
