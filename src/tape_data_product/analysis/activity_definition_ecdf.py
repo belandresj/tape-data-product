@@ -316,7 +316,16 @@ def main() -> None:
                            maximum_spill=arguments.maximum_spill)
     else:
         result = render(arguments.numerical, arguments.output, dpi=arguments.dpi)
-    print(json.dumps(result, indent=2, sort_keys=True))
+    if arguments.command == "calculate":
+        printable = {
+            "schema": result["schema"], "members": result["members"],
+            "represented_rows": result["represented_rows"],
+            "elapsed_seconds": result["elapsed_seconds"],
+            "output": str(arguments.output / "numerical.json"),
+        }
+    else:
+        printable = result
+    print(json.dumps(printable, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
