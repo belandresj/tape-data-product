@@ -336,6 +336,10 @@ def _format_tick(value: float) -> str:
     return f"{value:g}"
 
 
+def _curve_quantile(summary: dict, probability: float) -> float:
+    return next((point[0] for point in summary["curve"] if point[1] >= probability), summary["maximum"] or 0.0)
+
+
 def _native_ticks(maximum: float, transform: str) -> list[float]:
     if transform == "linear":
         return [0, .2, .4, .6, .8, 1]
@@ -372,8 +376,10 @@ def render(numerical_path: Path, output: Path, *, dpi: int = 190) -> dict:
         }[family]
         fig.suptitle(title, fontsize=20, y=.988)
         for row, metric in enumerate(metrics):
-            maxima = [metric["views"][view]["sessions"]["pooled"]["maximum"] or 0 for view in VIEWS]
-            maximum = max(maxima)
+            display_maximum = max(
+                _curve_quantile(metric["views"][view]["sessions"][session], .999)
+                for view in VIEWS for session in SESSIONS
+            )
             for column, view in enumerate(VIEWS):
                 axis = axes[row, column]
                 for session in SESSIONS:
@@ -385,11 +391,12 @@ def render(numerical_path: Path, output: Path, *, dpi: int = 190) -> dict:
                     if metric["transform"] == "log1p":
                         x = np.log1p(x)
                     axis.step(x, y, where="post", color=colors[session], linestyle=styles[session],
-                              linewidth=2.2 if session == "pooled" else 1.7, label=session.replace("_", " ").title())
-                ticks = _native_ticks(maximum, metric["transform"])
+                              linewidth=2.2 if session == "pooled" else 1.7,
+                              label={"pooled": "Pooled", "premarket": "Premarket", "rth": "RTH", "after_hours": "After-hours"}[session])
+                ticks = _native_ticks(display_maximum, metric["transform"])
                 axis.set_xticks(np.log1p(ticks) if metric["transform"] == "log1p" else ticks)
                 axis.set_xticklabels([_format_tick(value) for value in ticks])
-                upper = math.log1p(maximum) if metric["transform"] == "log1p" else max(1, maximum)
+                upper = math.log1p(display_maximum) if metric["transform"] == "log1p" else max(1, display_maximum)
                 axis.set_xlim(0, max(1e-6, upper))
                 axis.set_ylim(0, 100.8)
                 axis.grid(axis="y", color="#cbd5e1", alpha=.55, linewidth=.8)
@@ -400,7 +407,7 @@ def render(numerical_path: Path, output: Path, *, dpi: int = 190) -> dict:
                     axis.set_ylabel("Valid observations at or below value (%)")
         handles, labels = axes[0, 0].get_legend_handles_labels()
         fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(.5, .962), ncol=4, frameon=False)
-        fig.text(.5, .012, "Each column uses its corresponding active-tape gate. Curves use field-valid stock-seconds; all finite tails and valid zeros remain in the denominator.", ha="center", fontsize=9.5, color="#475569")
+        fig.text(.5, .012, "Each column uses its corresponding active-tape gate. Axes end at the largest session p99.9 for each row; exact tails, valid zeros and denominators remain in the numerical artifact.", ha="center", fontsize=9.5, color="#475569")
         fig.tight_layout(rect=(.04, .035, .995, .94), h_pad=2.0, w_pad=2.0)
         for extension in ("png", "svg"):
             path = output / f"{family}_ecdf.{extension}"
