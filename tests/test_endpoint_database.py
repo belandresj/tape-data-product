@@ -1,6 +1,8 @@
 from pathlib import Path
+import json
 import sys
 
+import pyarrow.parquet as pq
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -11,6 +13,7 @@ from tape_data_product.query import (
     build_endpoint_query_catalog,
     open_tape_database,
 )
+from tape_data_product.cli import main
 
 
 def _catalog(tmp_path):
@@ -153,3 +156,103 @@ def test_scope_and_input_failures_are_explicit(tmp_path):
             expected_identity=result["catalog_identity"],
             data_roots=roots,
         )
+
+
+def test_query_result_bounds_arrow_batches_and_dataframe_materialization(tmp_path):
+    _, catalog, _, roots = _catalog(tmp_path)
+    with open_tape_database(catalog, data_roots=roots) as database:
+        frame = database.sql(
+            "SELECT interval_end_ns FROM features ORDER BY interval_end_ns LIMIT 2"
+        ).df()
+        assert len(frame) == 2
+        with pytest.raises(ContractError, match="DataFrame limit"):
+            database.sql("SELECT interval_end_ns FROM features").df(max_rows=3)
+        batches = list(
+            database.sql("SELECT interval_end_ns FROM features ORDER BY interval_end_ns")
+            .arrow_batches(batch_size=3)
+        )
+        assert [batch.num_rows for batch in batches] == [3, 3, 2]
+        with pytest.raises(ContractError, match="Arrow batch size"):
+            list(database.sql("SELECT 1").arrow_batches(batch_size=25_001))
+
+
+def test_streamed_export_records_sql_scope_source_and_rows(tmp_path, monkeypatch):
+    partition, catalog, result, roots = _catalog(tmp_path)
+    output = tmp_path / "export"
+    query = (
+        "SELECT symbol, session_date, endpoint_time, midpoint_rms_5s_bps_hl30s "
+        "FROM features WHERE midpoint_rms_5s_bps_hl30s = 0;"
+    )
+    usage = type("Usage", (), {"free": 21 * 1024**3})()
+    monkeypatch.setattr(
+        "tape_data_product.query.endpoint_database.shutil.disk_usage",
+        lambda _: usage,
+    )
+    with open_tape_database(
+        catalog,
+        expected_identity=result["catalog_identity"],
+        data_roots=roots,
+        start_date=partition["day"],
+        end_date=partition["day"],
+    ) as database:
+        exported = database.export_parquet(query, output)
+
+    manifest = json.loads((output / "manifest.json").read_text())
+    scope = json.loads((output / "scope.json").read_text())
+    assert manifest["result"]["rows"] == 1
+    assert exported["result"]["rows"] == 1
+    assert pq.ParquetFile(output / "results.parquet").metadata.num_rows == 1
+    assert (output / "query.sql").read_text() == query + "\n"
+    assert scope["start_date"] == partition["day"]
+    assert scope["end_date"] == partition["day"]
+    assert scope["members"] == [f"{partition['day']}/{partition['symbol']}"]
+    assert scope["sessions"] == "all_represented"
+    assert scope["source_identity"]["query_catalog_identity"] == result["catalog_identity"]
+
+
+def test_cli_query_fields_preview_zero_match_and_empty_date(tmp_path, capsys):
+    partition, catalog, result, roots = _catalog(tmp_path)
+    common = [
+        "endpoint-data",
+        "query-fields",
+        "--catalog",
+        str(catalog),
+        "--identity",
+        result["catalog_identity"],
+        "--base-root",
+        str(roots["base"]),
+        "--feature-root",
+        str(roots["features"]),
+        "--start-date",
+        partition["day"],
+        "--end-date",
+        partition["day"],
+    ]
+    assert main(common) == 0
+    fields = json.loads(capsys.readouterr().out)
+    assert len(fields["fields"]) == 27
+    assert {field["table_name"] for field in fields["fields"]} == {
+        "features",
+        "current_ages",
+    }
+
+    sql_file = tmp_path / "zero.sql"
+    sql_file.write_text(
+        "SELECT symbol, endpoint_time FROM features "
+        "WHERE midpoint_rms_5s_bps_hl30s > 1000000"
+    )
+    query_args = common.copy()
+    query_args[1] = "sql"
+    query_args.extend(["--sql-file", str(sql_file), "--preview-limit", "3"])
+    assert main(query_args) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["displayed_rows"] == 0
+    assert preview["truncated"] is False
+
+    empty_args = query_args.copy()
+    start_index = empty_args.index("--start-date") + 1
+    end_index = empty_args.index("--end-date") + 1
+    empty_args[start_index] = "2026-04-01"
+    empty_args[end_index] = "2026-04-01"
+    assert main(empty_args) == 2
+    assert "scope contains no completed members" in capsys.readouterr().err

@@ -101,8 +101,15 @@ with open_tape_database(
 
 The default DuckDB configuration uses one thread, a 256 MiB memory limit and
 no disk spill. Passing an explicit bounded `temp_directory` enables at most
-1 GiB of spill after enforcing the 20 GiB free-disk reserve. This checkpoint
-does not add the SQL-file CLI or an installed release; those are checkpoint 2.
+1 GiB of spill after enforcing the 20 GiB free-disk reserve.
+
+`db.sql(...)` returns a `TapeQueryResult`. Its `arrow_batches(batch_size=4096)`
+method streams batches capped at 25,000 rows. `df()` is convenient for small
+results and refuses to materialize more than 10,000 rows by default; pass a
+smaller explicit `max_rows` where appropriate. `db.export_parquet(sql, output)`
+streams a larger result to a new immutable directory containing
+`results.parquet`, the exact `query.sql`, selected `scope.json`, and a manifest
+with source identity, row count, hashes, bytes, and query time.
 
 ## Command line
 
@@ -113,10 +120,60 @@ tape-product endpoint-data pilot
 tape-product endpoint-data verify
 tape-product endpoint-data fields
 tape-product endpoint-data inspect
+tape-product endpoint-data query-fields
+tape-product endpoint-data sql
 ```
 
 `inspect` requires a saved `endpoint_selection_v1` document with explicit members and caps displayed rows at 1,000. `verify` performs first-use reference and consumed-file verification. Reuse one verified in-process handle for multiple bounded projections; there is no durable verification cache.
 
+## Trusted VM access
+
+Run queries through SSH or a notebook whose kernel uses the isolated installed
+release on the VM. Do not expose DuckDB or a notebook directly to the public
+network. If a browser notebook is useful, bind it to VM loopback and forward
+that port through SSH; the notebook and CLI must use the same installed Python
+environment, catalog identity, and local derived-data roots.
+
+For command-line discovery, `query-fields` reads the selected catalog's actual
+`feature_catalog`; both date bounds are mandatory even though the catalog table
+itself has 27 fixed rows. SQL execution accepts one saved file and also requires
+inclusive trading-date bounds. Terminal output defaults to 20 rows and can
+never exceed 100. Add `--export NEW_DIRECTORY` to stream the complete result to
+Parquet instead of printing rows. Sessions remain unrestricted unless the SQL
+contains an explicit `session` predicate.
+
+```bash
+QUERY_RELEASE=/opt/tape-data-product/releases/<query-release>/venv
+$QUERY_RELEASE/bin/tape-product endpoint-data sql \
+  --catalog /srv/tape-data-product/control/<query-catalog> \
+  --identity <query-catalog-identity> \
+  --base-root /srv/tape-data-product/derived/<release>/base \
+  --feature-root /srv/tape-data-product/derived/<release>/features \
+  --start-date 2026-03-11 --end-date 2026-03-11 \
+  --sql-file examples/endpoint-rms-threshold.sql --preview-limit 20
+```
+
+The Python interface uses the identical tables and names:
+
+```python
+with open_tape_database(
+    catalog,
+    expected_identity=catalog_identity,
+    data_roots={"base": base_root, "features": feature_root},
+    start_date="2026-03-11",
+    end_date="2026-03-11",
+) as db:
+    result = db.sql(
+        "SELECT symbol, session_date, endpoint_time "
+        "FROM features ORDER BY endpoint_time LIMIT 10"
+    )
+    print(result.df())
+```
+
 ## Current release boundary
 
-The accepted 24-member pilot supports `historical_membership`. Its source contexts do not contain usable discovery timestamps, so both discovery-dependent modes fail clearly rather than falling back. Narrow endpoint selections currently stream the selected member's physical companions while filtering output; row-group pruning is deferred because it is not required for the fixed pilot handoff. A full-universe reference has not been constructed or authorized.
+The accepted 24-member pilot supports `historical_membership`. Its source
+contexts do not contain usable discovery timestamps, so both discovery-dependent
+modes fail clearly rather than falling back. This checkpoint installs bounded
+query access but does not construct a full-universe query catalog or claim
+full-corpus query performance.

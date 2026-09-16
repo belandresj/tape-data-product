@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -11,10 +12,11 @@ import time
 
 import duckdb
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from ..contracts.config import ContractError, FeatureConfig
 from ..contracts.schemas import BASE_SCHEMA, feature_schema, schema_hash
-from ..integrity import safe_relative
+from ..integrity import safe_relative, sha256_file, write_atomic_json
 from .endpoint_catalog import read_endpoint_query_catalog
 from .endpoint_reader import describe_endpoint_fields
 from .endpoint_release import (
@@ -28,6 +30,9 @@ from .endpoint_selection import session_ranges
 
 
 KEYS = ("session_date", "symbol", "interval_end_ns")
+DEFAULT_ARROW_BATCH_SIZE = 4096
+MAX_ARROW_BATCH_SIZE = 25_000
+DEFAULT_DATAFRAME_ROWS = 10_000
 BASE_AGES = (
     ("trade_age_seconds", "trade_age_reason_mask"),
     ("quote_age_seconds", "quote_age_reason_mask"),
@@ -318,6 +323,53 @@ def _configure_views(connection, feature_paths, base_paths, members_table, catal
     )
 
 
+def _bounded_positive(value, name, maximum):
+    if type(value) is not int or not 1 <= value <= maximum:
+        raise ContractError(f"{name} must be in 1..{maximum}")
+    return value
+
+
+class TapeQueryResult:
+    """DuckDB relation with bounded materialization and streaming Arrow access."""
+
+    def __init__(self, relation):
+        self._relation = relation
+
+    def arrow_batches(self, batch_size=DEFAULT_ARROW_BATCH_SIZE):
+        """Yield record batches without materializing the complete result."""
+        _bounded_positive(batch_size, "Arrow batch size", MAX_ARROW_BATCH_SIZE)
+        yield from self._relation.to_arrow_reader(batch_size=batch_size)
+
+    def df(self, max_rows=DEFAULT_DATAFRAME_ROWS):
+        """Convert a small result to pandas, failing instead of over-materializing."""
+        _bounded_positive(max_rows, "DataFrame row limit", MAX_ARROW_BATCH_SIZE)
+        frame = self._relation.limit(max_rows + 1).df()
+        if len(frame) > max_rows:
+            raise ContractError(
+                f"query exceeds the {max_rows}-row DataFrame limit; "
+                "use arrow_batches() or a streamed Parquet export"
+            )
+        return frame
+
+    def preview(self, limit=20):
+        """Return a capped JSON-compatible preview without counting the full result."""
+        _bounded_positive(limit, "preview limit", 100)
+        table = self._relation.limit(limit + 1).to_arrow_table()
+        truncated = table.num_rows > limit
+        if truncated:
+            table = table.slice(0, limit)
+        return {
+            "columns": table.column_names,
+            "displayed_rows": table.num_rows,
+            "truncated": truncated,
+            "rows": table.to_pylist(),
+        }
+
+    def __getattr__(self, name):
+        # Preserve existing relation methods such as fetchone/fetchall.
+        return getattr(self._relation, name)
+
+
 @dataclass
 class TapeDatabase:
     """Context-managed DuckDB connection plus immutable scope metadata."""
@@ -327,16 +379,27 @@ class TapeDatabase:
     selected_members: tuple[str, ...]
     validation_seconds: float
     validation_bytes: int
+    start_date: str | None
+    end_date: str | None
+    release_source_revision: str | None
+    release_wheel_sha256: str | None
     _input_snapshots: dict[str, tuple[int, int, int, int, int]]
     _temporary_directory: tempfile.TemporaryDirectory | None = None
+
+    def _check_inputs(self):
+        for path, snapshot in self._input_snapshots.items():
+            if _snapshot(Path(path)) != snapshot:
+                raise ContractError("verified query input changed during database session")
 
     def sql(self, query, params=None):
         if not isinstance(query, str) or not query.strip():
             raise ContractError("SQL query must be a nonempty string")
-        for path, snapshot in self._input_snapshots.items():
-            if _snapshot(Path(path)) != snapshot:
-                raise ContractError("verified query input changed during database session")
-        return self.connection.sql(query, params=params)
+        self._check_inputs()
+        return TapeQueryResult(self.connection.sql(query, params=params))
+
+    def export_parquet(self, query, output):
+        """Stream a query to an immutable Parquet export with reproducibility data."""
+        return _export_parquet(self, query, output)
 
     def close(self):
         if self.connection is not None:
@@ -351,6 +414,81 @@ class TapeDatabase:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+
+
+def _write_new_text(path, text):
+    with Path(path).open("x", encoding="utf-8") as stream:
+        stream.write(text)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def _sql_literal(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _export_parquet(database, query, output):
+    if not isinstance(query, str) or not query.strip():
+        raise ContractError("SQL query must be a nonempty string")
+    normalized = query.strip()
+    encoded = (normalized + "\n").encode()
+    if len(encoded) > 1 << 20:
+        raise ContractError("SQL file exceeds 1 MiB")
+    output = Path(output).resolve()
+    if output.exists():
+        raise FileExistsError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(output.parent).free < 20 * 1024**3:
+        raise ContractError("export destination violates 20 GiB free-disk reserve")
+    attempt = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
+    started = time.perf_counter()
+    try:
+        database._check_inputs()
+        sql_path = attempt / "query.sql"
+        scope_path = attempt / "scope.json"
+        parquet_path = attempt / "results.parquet"
+        _write_new_text(sql_path, encoded.decode())
+        scope = {
+            "start_date": database.start_date,
+            "end_date": database.end_date,
+            "members": list(database.selected_members),
+            "sessions": "all_represented",
+            "source_identity": {
+                "query_catalog_identity": database.catalog_identity,
+                "release_source_revision": database.release_source_revision,
+                "release_wheel_sha256": database.release_wheel_sha256,
+            },
+        }
+        write_atomic_json(scope_path, scope)
+        executable = normalized[:-1].rstrip() if normalized.endswith(";") else normalized
+        database.connection.execute(
+            f"COPY ({executable}) TO {_sql_literal(parquet_path)} "
+            "(FORMAT PARQUET, COMPRESSION ZSTD)"
+        )
+        database._check_inputs()
+        parquet = pq.ParquetFile(parquet_path)
+        sql_sha, sql_bytes = sha256_file(sql_path)
+        scope_sha, scope_bytes = sha256_file(scope_path)
+        result_sha, result_bytes = sha256_file(parquet_path)
+        manifest = {
+            "version": "endpoint_query_export_v1",
+            "source_identity": scope["source_identity"],
+            "scope": {"path": "scope.json", "sha256": scope_sha, "bytes": scope_bytes},
+            "sql": {"path": "query.sql", "sha256": sql_sha, "bytes": sql_bytes},
+            "result": {
+                "path": "results.parquet",
+                "sha256": result_sha,
+                "bytes": result_bytes,
+                "rows": parquet.metadata.num_rows,
+            },
+            "query_seconds": time.perf_counter() - started,
+        }
+        write_atomic_json(attempt / "manifest.json", manifest)
+        os.rename(attempt, output)
+    except Exception:
+        shutil.rmtree(attempt, ignore_errors=True)
+        raise
+    return {**manifest, "output": str(output)}
 
 
 def open_tape_database(
@@ -423,6 +561,10 @@ def open_tape_database(
         selected_members=tuple(record["member"] for record in selected),
         validation_seconds=time.perf_counter() - started,
         validation_bytes=validation_bytes,
+        start_date=start_date,
+        end_date=end_date,
+        release_source_revision=manifest["release"].get("source_revision"),
+        release_wheel_sha256=manifest["release"].get("wheel_sha256"),
         _input_snapshots=snapshots,
         _temporary_directory=temporary,
     )
