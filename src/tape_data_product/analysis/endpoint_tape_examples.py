@@ -32,6 +32,7 @@ FEATURE_STEMS = (
     "midpoint_rms_5s_to_spread",
     "trade_rate_per_second",
     "movement_participation",
+    "dollar_rate_usd_per_second",
 )
 BASE_COLUMNS = (
     "session_date",

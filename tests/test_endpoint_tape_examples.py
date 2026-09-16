@@ -32,6 +32,7 @@ def partition(root, member, start, *, feature=False):
                 ("midpoint_rms_5s_to_spread", 2.0),
                 ("trade_rate_per_second", 12.0),
                 ("movement_participation", 0.5),
+                ("dollar_rate_usd_per_second", 1_000.0),
             ):
                 name = f"{stem}_hl{half_life}s"
                 values[name] = [value] * rows
