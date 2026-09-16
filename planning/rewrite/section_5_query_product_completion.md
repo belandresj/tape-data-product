@@ -1,8 +1,9 @@
 # SQL query product checkpoint completion
 
-**Status: ready for owner verification.** Checkpoint 1 is implemented and
-tested on the project VM. This is not owner acceptance, an installed query
-release, checkpoint 2, or full-corpus query evidence.
+**Checkpoint 1 status: owner accepted 2026-09-16.** The owner explicitly
+accepted the checkpoint in the task immediately preceding checkpoint 2. The
+evidence below remains the accepted checkpoint-1 record; later sections record
+checkpoint-2 work separately.
 
 ## Checkpoint 1 evidence
 
