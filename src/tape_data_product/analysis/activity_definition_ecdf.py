@@ -99,16 +99,25 @@ def calculate(
     probability_steps: int = 10_000,
     memory_limit: str = "1GiB",
     maximum_spill: str = "24GiB",
+    resume: bool = False,
 ) -> dict:
     """Calculate four ungated session ECDFs from a verified feature inventory."""
     import duckdb
 
     inventory, output = Path(inventory), Path(output)
-    if output.exists():
+    partial_path = output / "numerical.partial.json"
+    if output.exists() and not resume:
         raise ValueError("output already exists")
-    output.mkdir(parents=True)
+    if resume and not partial_path.is_file():
+        raise ValueError("resume requires numerical.partial.json")
+    output.mkdir(parents=True, exist_ok=resume)
     scratch = output / "scratch"
-    scratch.mkdir()
+    if scratch.exists():
+        for path in scratch.iterdir():
+            if path.is_file():
+                path.unlink()
+    else:
+        scratch.mkdir()
     payload, paths = _feature_paths(inventory, expected_members)
     probabilities = _probabilities(probability_steps)
     started = time.monotonic()
@@ -120,10 +129,13 @@ def calculate(
     connection.execute(f"SET max_temp_directory_size='{maximum_spill}'")
     connection.execute("SET temp_directory=?", [str(scratch)])
     session_expression = _session_expression()
-    results = []
+    results = json.loads(partial_path.read_text())["fields"] if resume else []
+    completed = {row["field"] for row in results}
     try:
         for specification in FIELDS:
             field = specification["field"]
+            if field in completed:
+                continue
             mask = field + "_reason_mask"
             threshold = specification["threshold"]
             threshold_predicate = f"value >= {threshold}" if specification["qualifier"] == ">=" else f"value <= {threshold}"
@@ -171,7 +183,7 @@ def calculate(
             result.update(sessions=sessions, elapsed_seconds=time.monotonic() - tick,
                           display_reduction_max_rank_gap=1 / probability_steps)
             results.append(result)
-            _write_json(output / "numerical.partial.json", {"fields": results})
+            _write_json(partial_path, {"fields": results})
     finally:
         connection.close()
     for path in scratch.iterdir():
@@ -193,19 +205,17 @@ def calculate(
         "elapsed_seconds": time.monotonic() - started,
     }
     _write_json(output / "numerical.json", numerical)
-    (output / "numerical.partial.json").unlink()
+    partial_path.unlink()
     return numerical
 
 
 def _tick_values(kind: str, maximum: float) -> list[float]:
     candidates = (
-        [0, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000]
+        [0, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000]
         if kind == "trade_rate"
-        else [0, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 300, 1800, 7200, 28800, 57600]
+        else [0, 0.5, 2, 10, 60, 300, 1800, 7200, 28800, 57600]
     )
     ticks = [value for value in candidates if value <= maximum]
-    if ticks[-1] < maximum and math.log1p(maximum) - math.log1p(ticks[-1]) > 0.5:
-        ticks.append(maximum)
     return ticks
 
 
@@ -262,8 +272,8 @@ def render(numerical_path: Path, output: Path, *, dpi: int = 190) -> dict:
             ax.spines["right"].set_visible(False)
             ax.tick_params(labelsize=9)
             ax.set_xlabel("Eligible trades per second" if kind == "trade_rate" else "Trade-age p90 (seconds)", fontsize=11)
-            ax.text(np.log1p(threshold), 3.5, "  ≥1 trade/s" if kind == "trade_rate" else "≤2 seconds  ",
-                    ha="left" if kind == "trade_rate" else "right", va="bottom", fontsize=9, color="#374151")
+            ax.text(np.log1p(threshold), 3.5, "  ≥1 trade/s" if kind == "trade_rate" else "  ≤2 seconds",
+                    ha="left", va="bottom", fontsize=9, color="#374151")
             pooled = panel["sessions"]["pooled"]
             ax.text(.985, .08, f"Pooled valid n={pooled['valid']:,}\nthreshold side={pooled['threshold_pass_share_valid']:.1%}",
                     transform=ax.transAxes, ha="right", va="bottom", fontsize=8.5, color="#475569")
@@ -303,6 +313,7 @@ def main() -> None:
     calculator.add_argument("--probability-steps", type=int, default=10_000)
     calculator.add_argument("--memory-limit", default="1GiB")
     calculator.add_argument("--maximum-spill", default="24GiB")
+    calculator.add_argument("--resume", action="store_true")
     renderer = subparsers.add_parser("render")
     renderer.add_argument("--numerical", type=Path, required=True)
     renderer.add_argument("--output", type=Path, required=True)
@@ -313,7 +324,8 @@ def main() -> None:
                            expected_members=arguments.expected_members,
                            probability_steps=arguments.probability_steps,
                            memory_limit=arguments.memory_limit,
-                           maximum_spill=arguments.maximum_spill)
+                           maximum_spill=arguments.maximum_spill,
+                           resume=arguments.resume)
     else:
         result = render(arguments.numerical, arguments.output, dpi=arguments.dpi)
     if arguments.command == "calculate":
