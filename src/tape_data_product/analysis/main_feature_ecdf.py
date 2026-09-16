@@ -267,6 +267,9 @@ def _calculate_family(payload: dict, members: list[dict], family: str, batch_siz
                 "gate_selected": {session: gate_counts[(view, session)] for session in SESSIONS},
                 "sessions": {session: accumulators[(metric.key, view, session)].result() for session in SESSIONS},
             }
+            for session in SESSIONS:
+                summary = entry["views"][view]["sessions"][session]
+                summary["unavailable_within_gate"] = gate_counts[(view, session)] - summary["valid"]
             pooled = entry["views"][view]["sessions"]["pooled"]["valid"]
             split = sum(entry["views"][view]["sessions"][s]["valid"] for s in SESSIONS[1:])
             if pooled != split:
@@ -338,8 +341,14 @@ def _native_ticks(maximum: float, transform: str) -> list[float]:
         return [0, .2, .4, .6, .8, 1]
     candidates = [0, .01, .03, .1, .3, 1, 3, 10, 30, 100, 300, 1_000, 3_000,
                   10_000, 30_000, 100_000, 300_000, 1_000_000, 3_000_000]
-    ticks = [value for value in candidates if value <= maximum]
-    if len(ticks) < 3:
+    candidates = [value for value in candidates if value <= maximum]
+    span = math.log1p(maximum)
+    minimum_gap = .075 * span
+    ticks = [0.0]
+    for value in candidates[1:]:
+        if math.log1p(value) - math.log1p(ticks[-1]) >= minimum_gap:
+            ticks.append(value)
+    if len(ticks) < 3 and maximum > 0:
         ticks.append(maximum)
     return sorted(set(ticks))
 
