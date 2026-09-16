@@ -9,6 +9,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from test_endpoint_reader import _open, _write_partition  # noqa: E402
 
 from tape_data_product.contracts.config import ContractError
+from tape_data_product.contracts.config import canonical_json, digest
+from tape_data_product.integrity import sha256_file, write_atomic_json
 from tape_data_product.query import (
     build_endpoint_query_catalog,
     open_tape_database,
@@ -256,3 +258,54 @@ def test_cli_query_fields_preview_zero_match_and_empty_date(tmp_path, capsys):
     empty_args[end_index] = "2026-04-01"
     assert main(empty_args) == 2
     assert "scope contains no completed members" in capsys.readouterr().err
+
+
+def test_date_scope_does_not_touch_unrelated_member_files(tmp_path):
+    first = _write_partition(tmp_path, day="2026-03-09", symbol="ONE")
+    second = _write_partition(tmp_path, day="2026-03-10", symbol="TWO")
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    first_handle, _, _ = _open(first_root, first)
+    second_handle, _, _ = _open(second_root, second)
+    first_catalog = tmp_path / "first-catalog"
+    second_catalog = tmp_path / "second-catalog"
+    build_endpoint_query_catalog(first_handle, first_catalog)
+    build_endpoint_query_catalog(second_handle, second_catalog)
+
+    records = []
+    for catalog in (first_catalog, second_catalog):
+        records.extend(
+            json.loads(line)
+            for line in (catalog / "members.jsonl").read_text().splitlines()
+        )
+    members_path = first_catalog / "members.jsonl"
+    members_path.write_text("".join(canonical_json(record) + "\n" for record in records))
+    members_sha, members_bytes = sha256_file(members_path)
+    manifest = json.loads((first_catalog / "manifest.json").read_text())
+    manifest["members"] = {
+        "path": "members.jsonl",
+        "sha256": members_sha,
+        "bytes": members_bytes,
+        "count": 2,
+        "rows_per_table": 16,
+    }
+    manifest["validation"]["rows"] = 16
+    manifest.pop("catalog_identity")
+    manifest["catalog_identity"] = digest(manifest)
+    write_atomic_json(first_catalog / "manifest.json", manifest)
+
+    unrelated = second["feature_root"] / second["relative"] / "features.parquet"
+    unrelated.unlink()
+    with open_tape_database(
+        first_catalog,
+        expected_identity=manifest["catalog_identity"],
+        data_roots={"base": first["base_root"], "features": first["feature_root"]},
+        start_date="2026-03-09",
+        end_date="2026-03-09",
+    ) as database:
+        assert database.selected_members == ("2026-03-09/ONE",)
+        assert database.sql("SELECT DISTINCT symbol FROM features").fetchall() == [
+            ("ONE",)
+        ]
