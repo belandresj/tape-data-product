@@ -253,7 +253,7 @@ def render_pair(examples: list[dict], output: Path, *, title: str, subtitle: str
         right=0.985,
         top=0.84,
         bottom=0.095,
-        hspace=0.12,
+        hspace=0.18,
         wspace=0.12,
     )
     price_axes = [fig.add_subplot(grid[0, index]) for index in range(2)]
@@ -325,8 +325,10 @@ def render_pair(examples: list[dict], output: Path, *, title: str, subtitle: str
         feature_ax.set_xlabel("Elapsed time", color=COLORS["text"], fontsize=10, labelpad=2)
         if column == 0:
             price_ax.set_ylabel("Price relative to first midpoint (bps)", color=COLORS["text"])
-            count_ax.set_ylabel("Eligible trades / 1s", color=COLORS["text"])
-            feature_ax.set_ylabel("30s EW measurement (bps)", color=COLORS["text"])
+            count_ax.set_ylabel("Eligible trades\nper second", color=COLORS["text"], labelpad=7)
+            feature_ax.set_ylabel(
+                "30s EW RMS / spread\n(bps)", color=COLORS["text"], labelpad=7
+            )
 
         table_ax.axis("off")
         rows = []
