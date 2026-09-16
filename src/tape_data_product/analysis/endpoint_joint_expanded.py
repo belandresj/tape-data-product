@@ -370,10 +370,23 @@ def _matrix(records: list[dict], panel_id: str, x_bins: int, y_bins: int) -> np.
 
 
 def _plot_panel(ax, matrix, x_axis: Axis, y_axis: Axis, norm, relationship: str):
+    from matplotlib.ticker import FuncFormatter, NullLocator
+
     display = np.ma.masked_less_equal(matrix.T, 0.0) if isinstance(norm, LogNorm) else matrix.T
     image = ax.pcolormesh(x_axis.edges, y_axis.edges, display, shading="auto", cmap="magma", norm=norm)
     if x_axis.scale == "log":
         ax.set_xscale("log")
+        ax.set_xlim(1.0, x_axis.edges[-1])
+        ax.set_xticks(
+            [value for value in (1.0, 10.0, 100.0, 1000.0) if value <= x_axis.edges[-1]]
+        )
+        ax.xaxis.set_minor_locator(NullLocator())
+        ax.xaxis.set_major_formatter(
+            FuncFormatter(lambda value, _: f"{value / 1000:g}k" if value >= 1000 else f"{value:g}")
+        )
+    else:
+        ax.set_xlim(0.0, 1.0)
+        ax.set_xticks((0.0, 0.2, 0.4, 0.6, 0.8, 1.0))
     ax.set_yscale("log")
     ax.grid(alpha=0.10, which="both")
     if relationship == "spread":
@@ -556,7 +569,11 @@ def run(args: argparse.Namespace) -> dict:
             artifacts.append({"path": path.name, "bytes": path.stat().st_size, "sha256": _sha256(path)})
     metadata = {
         "schema": "endpoint_joint_expanded_run_v1",
-        "status": "expanded_activity_bounded_reference_not_full_universe",
+        "status": (
+            "expanded_activity_full_universe"
+            if handle.manifest["reference_kind"] == "full"
+            else "expanded_activity_bounded_reference_not_full_universe"
+        ),
         "reference_kind": handle.manifest["reference_kind"],
         "members": expected_members,
         "reference_identity": args.reference_identity,
@@ -596,6 +613,8 @@ def render_saved(output_dir: str | Path, *, population_label: str | None = None)
     """Re-render figures and refresh hashes without rescanning the feature data."""
     output = Path(output_dir).resolve()
     metadata = json.loads((output / "metadata.json").read_text())
+    if metadata.get("reference_kind") == "full":
+        metadata["status"] = "expanded_activity_full_universe"
     summaries = json.loads((output / "coverage.json").read_text())
     histogram_rows = pq.read_table(output / "histogram_counts.parquet").to_pylist()
     summary_map = {row["panel_id"]: row for row in summaries}
