@@ -327,11 +327,15 @@ class TapeDatabase:
     selected_members: tuple[str, ...]
     validation_seconds: float
     validation_bytes: int
+    _input_snapshots: dict[str, tuple[int, int, int, int, int]]
     _temporary_directory: tempfile.TemporaryDirectory | None = None
 
     def sql(self, query, params=None):
         if not isinstance(query, str) or not query.strip():
             raise ContractError("SQL query must be a nonempty string")
+        for path, snapshot in self._input_snapshots.items():
+            if _snapshot(Path(path)) != snapshot:
+                raise ContractError("verified query input changed during database session")
         return self.connection.sql(query, params=params)
 
     def close(self):
@@ -384,8 +388,11 @@ def open_tape_database(
     else:
         temp_directory = str(Path(temp_directory).resolve())
         Path(temp_directory).mkdir(parents=True, exist_ok=True)
-        if shutil.disk_usage(temp_directory).free < 20 * 1024**3:
-            raise ContractError("DuckDB temp directory violates 20 GiB free-disk reserve")
+    if shutil.disk_usage(temp_directory).free < 20 * 1024**3:
+        if temporary is not None:
+            temporary.cleanup()
+        raise ContractError("DuckDB temp directory violates 20 GiB free-disk reserve")
+    connection = None
     try:
         connection = duckdb.connect(
             database=":memory:",
@@ -405,6 +412,8 @@ def open_tape_database(
             config,
         )
     except Exception:
+        if connection is not None:
+            connection.close()
         if temporary is not None:
             temporary.cleanup()
         raise
@@ -414,5 +423,6 @@ def open_tape_database(
         selected_members=tuple(record["member"] for record in selected),
         validation_seconds=time.perf_counter() - started,
         validation_bytes=validation_bytes,
+        _input_snapshots=snapshots,
         _temporary_directory=temporary,
     )

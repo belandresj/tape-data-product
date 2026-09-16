@@ -107,6 +107,16 @@ def test_current_ages_are_keyed_separately_and_feature_only_scan_skips_base(tmp_
         assert {"features", "current_ages", "members", "feature_catalog"}.issubset(tables)
         assert "support" not in tables
 
+        feature_path = (
+            partition["feature_root"]
+            / partition["relative"]
+            / "features.parquet"
+        )
+        with feature_path.open("ab") as stream:
+            stream.write(b"changed-during-session")
+        with pytest.raises(ContractError, match="changed during database session"):
+            database.sql("SELECT count(*) FROM features")
+
 
 def test_scope_and_input_failures_are_explicit(tmp_path):
     partition, catalog, result, roots = _catalog(tmp_path)
