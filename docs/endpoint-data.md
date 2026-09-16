@@ -41,6 +41,69 @@ batches = iter_endpoint_batches(
 
 `iter_endpoint_batches(...)` accepts one or more registry field names and yields exact Arrow types, keys, values, masks, selection/segment flags, optional support/inspection columns and optional source-specific halt/continuity columns. B should request predicate dependencies separately and set `include_run_boundaries=True` only when strict-run logic needs continuity. C can read unconditional fields without adding feature predicates.
 
+## Scoped DuckDB query access
+
+`build_endpoint_query_catalog(handle, output, members=...)` derives a distinct
+`endpoint_query_catalog_v1` from a verified endpoint reference. Unlike the
+deterministic pilot reference, the catalog format has no month/stratum shape:
+it binds an explicit arbitrary set of completed member files. Construction
+scans every included member once through the accepted 27-field projected
+reader, preserving its key, value and reason-mask validation instead of adding
+a second validity implementation.
+
+`open_tape_database(...)` selects completed files by inclusive trading-date
+bounds and exact `YYYY-MM-DD/SYMBOL` member keys before it registers any
+Parquet scan. It returns a context-managed in-memory DuckDB handle with these
+researcher-facing tables:
+
+- `features`: exact keys, UTC `endpoint_time`, reporting `session`, and the 24
+  stored endpoint/EW feature values with their reason masks.
+- `current_ages`: the three unsmoothed base-age measurements and masks, with
+  the same exact keys. Join to `features` explicitly with
+  `(session_date, symbol, interval_end_ns)` when a query needs them.
+- `members`: the selected completed members, coverage and release identity.
+- `feature_catalog`: all 27 registry measurements, units, masks and owning
+  table (`features` or `current_ages`).
+
+This split is required for projected I/O. DuckDB 1.5.5 retains the base side of
+an otherwise-unused keyed left join because Parquet does not provide an
+enforceable uniqueness constraint. Keeping current ages separate makes a
+feature-only `features` query scan only `features.parquet`; `support.parquet`
+is not registered. The catalog construction already proves exact key
+alignment, and any query combining ages uses the explicit three-key join.
+
+All represented sessions are present by default. Invalid values remain SQL
+`NULL` with their nonzero mask; a valid zero remains numeric zero, so ordinary
+numeric predicates distinguish unavailable data from a valid zero-match
+result without extra filtering. The query boundary reads stored values and
+does not recalculate histories.
+
+```python
+from tape_data_product.query import open_tape_database
+
+with open_tape_database(
+    query_catalog,
+    expected_identity=query_catalog_identity,
+    data_roots={"base": base_root, "features": feature_root},
+    start_date="2026-03-11",
+    end_date="2026-03-11",
+    members=("2026-03-11/FBGL",),
+) as db:
+    rows = db.sql("""
+        SELECT symbol, session_date, session, endpoint_time,
+               midpoint_rms_5s_bps_hl30s
+        FROM features
+        WHERE midpoint_rms_5s_bps_hl30s > 10
+        ORDER BY endpoint_time
+        LIMIT 5
+    """).fetchall()
+```
+
+The default DuckDB configuration uses one thread, a 256 MiB memory limit and
+no disk spill. Passing an explicit bounded `temp_directory` enables at most
+1 GiB of spill after enforcing the 20 GiB free-disk reserve. This checkpoint
+does not add the SQL-file CLI or an installed release; those are checkpoint 2.
+
 ## Command line
 
 The additive command group preserves existing command meanings:
