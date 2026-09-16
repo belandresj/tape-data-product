@@ -100,6 +100,8 @@ def calculate(
     memory_limit: str = "1GiB",
     maximum_spill: str = "24GiB",
     resume: bool = False,
+    method: str = "exact_rank",
+    log_bin_width: float = 0.0025,
 ) -> dict:
     """Calculate four ungated session ECDFs from a verified feature inventory."""
     import duckdb
@@ -119,7 +121,11 @@ def calculate(
     else:
         scratch.mkdir()
     payload, paths = _feature_paths(inventory, expected_members)
-    probabilities = _probabilities(probability_steps)
+    if method not in {"exact_rank", "log_binned"}:
+        raise ValueError("method must be exact_rank or log_binned")
+    if not 0 < log_bin_width <= 0.05:
+        raise ValueError("log_bin_width must be in (0, 0.05]")
+    probabilities = _probabilities(probability_steps) if method == "exact_rank" else None
     started = time.monotonic()
     connection = duckdb.connect()
     connection.execute("SET threads=1")
@@ -139,7 +145,7 @@ def calculate(
             mask = field + "_reason_mask"
             threshold = specification["threshold"]
             threshold_predicate = f"value >= {threshold}" if specification["qualifier"] == ">=" else f"value <= {threshold}"
-            query = f"""
+            exact_query = f"""
                 WITH valid AS (
                     SELECT CAST(\"{field}\" AS DOUBLE) AS value,
                            {session_expression} AS session
@@ -157,20 +163,64 @@ def calculate(
                 GROUP BY GROUPING SETS ((session), ())
             """
             tick = time.monotonic()
-            rows = connection.execute(query, [paths, probabilities]).fetchall()
             sessions = {}
-            for session, valid, zeros, minimum, maximum, threshold_pass, quantiles in rows:
-                if session not in SESSIONS or session in sessions:
-                    raise ValueError("invalid or duplicate session result")
-                if valid <= 0 or quantiles is None:
-                    raise ValueError("activity input unexpectedly has no valid observations")
-                sessions[session] = {
-                    "valid": int(valid), "zeros": int(zeros),
-                    "minimum": float(minimum), "maximum": float(maximum),
-                    "threshold_pass": int(threshold_pass),
-                    "threshold_pass_share_valid": int(threshold_pass) / int(valid),
-                    "curve": _collapse_quantiles(quantiles, probability_steps),
-                }
+            if method == "exact_rank":
+                rows = connection.execute(exact_query, [paths, probabilities]).fetchall()
+                for session, valid, zeros, minimum, maximum, threshold_pass, quantiles in rows:
+                    if session not in SESSIONS or session in sessions:
+                        raise ValueError("invalid or duplicate session result")
+                    if valid <= 0 or quantiles is None:
+                        raise ValueError("activity input unexpectedly has no valid observations")
+                    sessions[session] = {
+                        "valid": int(valid), "zeros": int(zeros),
+                        "minimum": float(minimum), "maximum": float(maximum),
+                        "threshold_pass": int(threshold_pass),
+                        "threshold_pass_share_valid": int(threshold_pass) / int(valid),
+                        "curve": _collapse_quantiles(quantiles, probability_steps),
+                    }
+            else:
+                binned_query = f"""
+                    WITH valid AS (
+                        SELECT CAST(\"{field}\" AS DOUBLE) AS value,
+                               {session_expression} AS session
+                        FROM read_parquet(?, hive_partitioning=false, union_by_name=false)
+                        WHERE \"{mask}\" = 0
+                    ), binned AS (
+                        SELECT value, session,
+                               CASE WHEN value=0 THEN 0
+                                    ELSE floor(ln(1+value)/{log_bin_width})::BIGINT + 1 END AS bin
+                        FROM valid
+                    )
+                    SELECT CASE WHEN GROUPING(session)=1 THEN 'pooled' ELSE session END AS session,
+                           bin, count(*)::BIGINT AS count,
+                           count(*) FILTER (WHERE {threshold_predicate})::BIGINT AS threshold_pass,
+                           min(value)::DOUBLE AS minimum, max(value)::DOUBLE AS maximum
+                    FROM binned
+                    GROUP BY GROUPING SETS ((session,bin), (bin))
+                    ORDER BY session, bin
+                """
+                rows = connection.execute(binned_query, [paths]).fetchall()
+                grouped = {session: [] for session in SESSIONS}
+                for session, bin_id, count, passed, minimum, maximum in rows:
+                    if session not in grouped:
+                        raise ValueError("invalid session result")
+                    grouped[session].append((int(bin_id), int(count), int(passed), float(minimum), float(maximum)))
+                for session, bins in grouped.items():
+                    valid = sum(row[1] for row in bins)
+                    if not valid:
+                        continue
+                    cumulative = 0
+                    curve = [[bins[0][3], 0.0]]
+                    for _, count, _, _, maximum in bins:
+                        cumulative += count
+                        curve.append([maximum, cumulative / valid])
+                    passed = sum(row[2] for row in bins)
+                    sessions[session] = {
+                        "valid": valid, "zeros": next((row[1] for row in bins if row[0] == 0), 0),
+                        "minimum": bins[0][3], "maximum": bins[-1][4],
+                        "threshold_pass": passed, "threshold_pass_share_valid": passed / valid,
+                        "curve": curve,
+                    }
             for session in SESSIONS:
                 sessions.setdefault(session, {
                     "valid": 0, "zeros": 0, "minimum": None, "maximum": None,
@@ -181,7 +231,8 @@ def calculate(
                 raise ValueError("pooled valid count does not reconcile")
             result = dict(specification)
             result.update(sessions=sessions, elapsed_seconds=time.monotonic() - tick,
-                          display_reduction_max_rank_gap=1 / probability_steps)
+                          display_reduction_max_rank_gap=(1 / probability_steps if method == "exact_rank" else None),
+                          log_bin_width=(log_bin_width if method == "log_binned" else None))
             results.append(result)
             _write_json(partial_path, {"fields": results})
     finally:
@@ -199,8 +250,10 @@ def calculate(
         "represented_rows": len(payload["members"]) * 57_600,
         "inventory": {"name": inventory.name, "sha256": _sha256(inventory)},
         "release": payload.get("release"),
-        "probability_steps": probability_steps,
-        "display_reduction_max_percentage_points": 100 / probability_steps,
+        "method": method,
+        "probability_steps": probability_steps if method == "exact_rank" else None,
+        "display_reduction_max_percentage_points": 100 / probability_steps if method == "exact_rank" else None,
+        "log_bin_width": log_bin_width if method == "log_binned" else None,
         "fields": results,
         "elapsed_seconds": time.monotonic() - started,
     }
@@ -287,7 +340,10 @@ def render(numerical_path: Path, output: Path, *, dpi: int = 190) -> dict:
     fig.text(.5, .905, "Full endpoint/EW release · field-valid observations · shaded side satisfies that input threshold", ha="center", fontsize=11, color="#475569")
     fig.text(.09, .085, "Horizontal position uses log(1+x); tick labels remain in native units. All finite tails and valid zeros remain in each ECDF denominator.", fontsize=9.5, color="#475569")
     fig.text(.09, .052, "The report gate requires both inputs simultaneously. Marginal threshold shares are not the combined active-tape retention rate.", fontsize=9.5, color="#475569")
-    fig.text(.09, .019, f"{data['members']:,} symbol-days · {data['represented_rows']:,} represented seconds · exact discrete ranks reduced to ≤{data['display_reduction_max_percentage_points']:.3f} percentage-point display gaps", fontsize=9.2, color="#475569")
+    method_note = (f"exact discrete ranks reduced to ≤{data['display_reduction_max_percentage_points']:.3f} percentage-point display gaps"
+                   if data["method"] == "exact_rank" else
+                   f"empirical CDF accumulated in log(1+x) bins of width {data['log_bin_width']:g}; exact denominators, zeros, thresholds and tails")
+    fig.text(.09, .019, f"{data['members']:,} symbol-days · {data['represented_rows']:,} represented seconds · {method_note}", fontsize=9.2, color="#475569")
     png, svg = output / "activity_definition_ecdf.png", output / "activity_definition_ecdf.svg"
     fig.savefig(png, dpi=dpi, facecolor="white")
     with mpl.rc_context({"svg.hashsalt": "activity-definition-ecdf-v1"}):
@@ -314,6 +370,8 @@ def main() -> None:
     calculator.add_argument("--memory-limit", default="1GiB")
     calculator.add_argument("--maximum-spill", default="24GiB")
     calculator.add_argument("--resume", action="store_true")
+    calculator.add_argument("--method", choices=("exact_rank", "log_binned"), default="exact_rank")
+    calculator.add_argument("--log-bin-width", type=float, default=.0025)
     renderer = subparsers.add_parser("render")
     renderer.add_argument("--numerical", type=Path, required=True)
     renderer.add_argument("--output", type=Path, required=True)
@@ -325,7 +383,8 @@ def main() -> None:
                            probability_steps=arguments.probability_steps,
                            memory_limit=arguments.memory_limit,
                            maximum_spill=arguments.maximum_spill,
-                           resume=arguments.resume)
+                           resume=arguments.resume, method=arguments.method,
+                           log_bin_width=arguments.log_bin_width)
     else:
         result = render(arguments.numerical, arguments.output, dpi=arguments.dpi)
     if arguments.command == "calculate":
