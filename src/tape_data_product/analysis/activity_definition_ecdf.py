@@ -159,8 +159,12 @@ def calculate(
                     "threshold_pass_share_valid": int(threshold_pass) / int(valid),
                     "curve": _collapse_quantiles(quantiles, probability_steps),
                 }
-            if set(sessions) != set(SESSIONS):
-                raise ValueError("missing session result")
+            for session in SESSIONS:
+                sessions.setdefault(session, {
+                    "valid": 0, "zeros": 0, "minimum": None, "maximum": None,
+                    "threshold_pass": 0, "threshold_pass_share_valid": None,
+                    "curve": [],
+                })
             if sessions["pooled"]["valid"] != sum(sessions[name]["valid"] for name in SESSIONS[1:]):
                 raise ValueError("pooled valid count does not reconcile")
             result = dict(specification)
@@ -228,7 +232,7 @@ def render(numerical_path: Path, output: Path, *, dpi: int = 190) -> dict:
     styles = {"pooled": "-", "premarket": "--", "rth": "-", "after_hours": ":"}
     widths = {"pooled": 2.2, "premarket": 1.65, "rth": 1.65, "after_hours": 1.8}
     labels = {"pooled": "Pooled", "premarket": "Premarket", "rth": "RTH", "after_hours": "After-hours"}
-    maxima = {kind: max(by_key[(view, kind)]["sessions"][session]["maximum"] for view in ("fast", "slow") for session in SESSIONS) for kind in ("trade_rate", "trade_age")}
+    maxima = {kind: max(by_key[(view, kind)]["sessions"][session]["maximum"] for view in ("fast", "slow") for session in SESSIONS if by_key[(view, kind)]["sessions"][session]["maximum"] is not None) for kind in ("trade_rate", "trade_age")}
     fig, axes = plt.subplots(2, 2, figsize=(15.5, 10.2), sharey=True)
     fig.subplots_adjust(left=.085, right=.975, top=.80, bottom=.17, hspace=.34, wspace=.18)
     for row_index, view in enumerate(("fast", "slow")):
@@ -236,6 +240,8 @@ def render(numerical_path: Path, output: Path, *, dpi: int = 190) -> dict:
             ax, panel, maximum = axes[row_index, column_index], by_key[(view, kind)], maxima[kind]
             for session in SESSIONS:
                 curve = np.asarray(panel["sessions"][session]["curve"], dtype=float)
+                if not len(curve):
+                    continue
                 ax.plot(np.log1p(curve[:, 0]), curve[:, 1] * 100,
                         color=colors[session], linestyle=styles[session], linewidth=widths[session],
                         label=labels[session], zorder=2 if session == "pooled" else 3)
