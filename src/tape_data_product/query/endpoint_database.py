@@ -222,7 +222,9 @@ def _catalog_table(config):
         rows.append(
             {
                 "name": descriptor["name"],
-                "table_name": "features",
+                "table_name": (
+                    "features" if descriptor["table"] == "features" else "current_ages"
+                ),
                 "physical_table": descriptor["table"],
                 "value_column": descriptor["value_column"],
                 "reason_mask": descriptor["reason_mask"],
@@ -269,21 +271,12 @@ def _configure_views(connection, feature_paths, base_paths, members_table, catal
     feature_columns = []
     for descriptor in feature_descriptors:
         feature_columns.extend((descriptor["value_column"], descriptor["reason_mask"]))
-    feature_sql = ",\n       ".join(
+    feature_sql = ",\n               ".join(
         f"f.{_quote_identifier(name)}" for name in feature_columns
     )
-    struct_fields = []
-    for value, mask in BASE_AGES:
-        struct_fields.extend(
-            (
-                f"{_quote_identifier(value)} := b.{_quote_identifier(value)}",
-                f"{_quote_identifier(mask)} := b.{_quote_identifier(mask)}",
-            )
-        )
-    struct_sql = ", ".join(struct_fields)
     connection.execute(
         f"""
-        CREATE TEMP VIEW _features_scoped AS
+        CREATE TEMP VIEW features AS
         SELECT f.session_date,
                f.symbol,
                f.interval_end_ns,
@@ -293,39 +286,35 @@ def _configure_views(connection, feature_paths, base_paths, members_table, catal
                    WHEN f.interval_end_ns <= m.rth_end_ns THEN 'rth'
                    ELSE 'after_hours'
                END AS session,
-               {feature_sql},
-               (
-                   SELECT struct_pack({struct_sql})
-                   FROM _endpoint_age_data AS b
-                   WHERE b.session_date = f.session_date
-                     AND b.symbol = f.symbol
-                     AND b.interval_end_ns = f.interval_end_ns
-               ) AS _current_ages
+               {feature_sql}
         FROM _endpoint_feature_data AS f
         JOIN members AS m
           ON m.session_date = f.session_date AND m.symbol = f.symbol
         """
     )
-    age_sql = []
+    age_columns = []
     for value, mask in BASE_AGES:
-        age_sql.extend(
-            (
-                f"_current_ages.{_quote_identifier(value)} AS {_quote_identifier(value)}",
-                f"_current_ages.{_quote_identifier(mask)} AS {_quote_identifier(mask)}",
-            )
-        )
-    public_columns = [
-        "session_date",
-        "symbol",
-        "interval_end_ns",
-        "endpoint_time",
-        "session",
-        *feature_columns,
-    ]
-    public_sql = ",\n       ".join(_quote_identifier(name) for name in public_columns)
-    public_sql += ",\n       " + ",\n       ".join(age_sql)
+        age_columns.extend((value, mask))
+    age_sql = ",\n               ".join(
+        f"b.{_quote_identifier(name)}" for name in age_columns
+    )
     connection.execute(
-        f"CREATE TEMP VIEW features AS SELECT {public_sql} FROM _features_scoped"
+        f"""
+        CREATE TEMP VIEW current_ages AS
+        SELECT b.session_date,
+               b.symbol,
+               b.interval_end_ns,
+               make_timestamp_ns(b.interval_end_ns) AT TIME ZONE 'UTC' AS endpoint_time,
+               CASE
+                   WHEN b.interval_end_ns <= m.premarket_end_ns THEN 'premarket'
+                   WHEN b.interval_end_ns <= m.rth_end_ns THEN 'rth'
+                   ELSE 'after_hours'
+               END AS session,
+               {age_sql}
+        FROM _endpoint_age_data AS b
+        JOIN members AS m
+          ON m.session_date = b.session_date AND m.symbol = b.symbol
+        """
     )
 
 
