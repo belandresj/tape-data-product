@@ -141,10 +141,11 @@ def _valid_values(table: pa.Table, name: str) -> np.ndarray:
 
 
 def load_example(spec: dict, *, timezone: str) -> dict:
+    endpoint_mode = isinstance(spec, dict) and "endpoint" in spec
     expected = {
         "member",
-        "start",
-        "end",
+        "endpoint" if endpoint_mode else "start",
+        *(() if endpoint_mode else ("end",)),
         "base_partition",
         "feature_partition",
         "lineage_status",
@@ -153,8 +154,22 @@ def load_example(spec: dict, *, timezone: str) -> dict:
     member = spec["member"]
     _require(isinstance(member, str) and member.count("/") == 1, "invalid member")
     day, symbol = member.split("/")
-    start = _clock_ns(day, spec["start"], timezone)
-    stop = _clock_ns(day, spec["end"], timezone)
+    if endpoint_mode:
+        endpoint = _clock_ns(day, spec["endpoint"], timezone)
+        start = endpoint - (ROWS - 1) * NS
+        stop = endpoint + NS
+        start_label = datetime.fromtimestamp(
+            start / NS, tz=ZoneInfo(timezone)
+        ).strftime("%H:%M:%S")
+        end_label = spec["endpoint"]
+    else:
+        start = _clock_ns(day, spec["start"], timezone)
+        stop = _clock_ns(day, spec["end"], timezone)
+        endpoint = stop - NS
+        start_label = spec["start"]
+        end_label = datetime.fromtimestamp(
+            endpoint / NS, tz=ZoneInfo(timezone)
+        ).strftime("%H:%M:%S")
     _require(stop - start == ROWS * NS, "example must be exactly five minutes")
     base_manifest, base_output, base_path = _manifest_output(
         Path(spec["base_partition"]), "base.parquet", member
@@ -197,6 +212,10 @@ def load_example(spec: dict, *, timezone: str) -> dict:
     trade_vwap[positive] = dollars[positive] / shares[positive]
 
     values = {name: _valid_values(features, name) for name in FEATURE_COLUMNS if not name.endswith("_reason_mask")}
+    endpoint_features = {
+        name: float(array[-1]) if math.isfinite(array[-1]) else None
+        for name, array in values.items()
+    }
     summaries = {}
     for name, array in values.items():
         good = array[np.isfinite(array)]
@@ -209,10 +228,12 @@ def load_example(spec: dict, *, timezone: str) -> dict:
         "member": member,
         "symbol": symbol,
         "session_date": day,
-        "start": spec["start"],
-        "end": spec["end"],
+        "start": start_label,
+        "end": end_label,
+        "endpoint": end_label,
+        "endpoint_mode": endpoint_mode,
         "lineage_status": spec["lineage_status"],
-        "elapsed": np.arange(ROWS, dtype=np.float64),
+        "elapsed": np.arange(-(ROWS - 1), 1, dtype=np.float64),
         "bid_bps": rebase(np.where(price_valid, bid, np.nan)),
         "ask_bps": rebase(np.where(price_valid, ask, np.nan)),
         "midpoint_bps": rebase(midpoint),
@@ -220,6 +241,7 @@ def load_example(spec: dict, *, timezone: str) -> dict:
         "trade_count_1s": counts,
         "features": values,
         "summaries": summaries,
+        "endpoint_features": endpoint_features,
         "reference_midpoint_usd": float(reference),
         "halt_seconds": int(np.count_nonzero(np.asarray(base["halt_active"].to_numpy(), dtype=bool))),
         "base_identity": base_output["sha256"],
@@ -242,8 +264,127 @@ def _format_mean(value: float | None, digits: int) -> str:
     return "unavailable" if value is None else f"{value:,.{digits}f}"
 
 
+def _render_endpoint_pair(
+    examples: list[dict], output: Path, *, title: str, subtitle: str
+) -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(15.5, 6.6), sharey=True)
+    fig.patch.set_facecolor("white")
+    fig.subplots_adjust(left=0.075, right=0.985, top=0.79, bottom=0.20, wspace=0.12)
+    fig.suptitle(
+        title,
+        x=0.075,
+        y=0.955,
+        ha="left",
+        fontsize=24,
+        fontweight="bold",
+        color=COLORS["text"],
+    )
+    fig.text(0.075, 0.885, subtitle, fontsize=13, color=COLORS["muted"])
+
+    y_values = [
+        value
+        for item in examples
+        for key in ("bid_bps", "ask_bps")
+        for value in item[key]
+        if math.isfinite(value)
+    ]
+    y_low, y_high = min(y_values), max(y_values)
+    y_pad = max(15.0, 0.06 * (y_high - y_low))
+
+    for column, item in enumerate(examples):
+        ax = axes[column]
+        elapsed = item["elapsed"]
+        ax.fill_between(
+            elapsed,
+            item["bid_bps"],
+            item["ask_bps"],
+            step="post",
+            color="#AAB5BF",
+            alpha=0.22,
+            linewidth=0,
+        )
+        ax.step(
+            elapsed,
+            item["ask_bps"],
+            where="post",
+            color=COLORS["ask"],
+            linewidth=0.9,
+        )
+        ax.step(
+            elapsed,
+            item["bid_bps"],
+            where="post",
+            color=COLORS["bid"],
+            linewidth=0.9,
+        )
+        ax.axhline(0.0, color="#98A3AD", linewidth=0.7, linestyle=":")
+        ax.set_xlim(-300, 0)
+        ax.set_ylim(y_low - y_pad, y_high + y_pad)
+        ax.set_xticks((-300, -240, -180, -120, -60, 0))
+        ax.xaxis.set_major_formatter(
+            FuncFormatter(
+                lambda value, _: "0:00"
+                if int(value) == 0
+                else f"-{abs(int(value)) // 60}:{abs(int(value)) % 60:02d}"
+            )
+        )
+        ax.set_xlabel("Time before selected endpoint", color=COLORS["text"], fontsize=10)
+        ax.set_title(
+            f"{item['symbol']}  ·  endpoint {item['endpoint']} ET",
+            loc="left",
+            fontsize=14,
+            fontweight="bold",
+            color=COLORS["text"],
+            pad=10,
+        )
+        ax.text(
+            0.012,
+            0.975,
+            f"Trailing five minutes · reference midpoint ${item['reference_midpoint_usd']:.4f}",
+            transform=ax.transAxes,
+            va="top",
+            fontsize=9,
+            color=COLORS["muted"],
+        )
+        _style_axis(ax)
+    axes[0].set_ylabel("Price relative to first midpoint (bps)", color=COLORS["text"])
+
+    fig.legend(
+        handles=(
+            Line2D([0], [0], color=COLORS["ask"], label="Best ask"),
+            Line2D([0], [0], color=COLORS["bid"], label="Best bid"),
+        ),
+        loc="upper right",
+        bbox_to_anchor=(0.985, 0.885),
+        ncol=2,
+        frameon=False,
+        fontsize=10,
+        labelcolor=COLORS["text"],
+    )
+    fig.text(
+        0.075,
+        0.085,
+        "Each panel shows 300 one-second endpoint quotes ending at the selected query observation. The shaded band is the full quoted spread; price rebasing is display-only.",
+        fontsize=8.8,
+        color=COLORS["muted"],
+    )
+    fig.text(
+        0.075,
+        0.045,
+        f"GPUS: {examples[0]['lineage_status']}  ·  CAST: {examples[1]['lineage_status']}",
+        fontsize=8.4,
+        color=COLORS["muted"],
+    )
+    fig.savefig(output, dpi=220, facecolor="white")
+    fig.savefig(output.with_suffix(".svg"), facecolor="white")
+    plt.close(fig)
+
+
 def render_pair(examples: list[dict], output: Path, *, title: str, subtitle: str) -> None:
     _require(len(examples) == 2, "exactly two examples are required")
+    if all(item["endpoint_mode"] for item in examples):
+        _render_endpoint_pair(examples, output, title=title, subtitle=subtitle)
+        return
     fig = plt.figure(figsize=(15.5, 11.2), facecolor="white")
     grid = fig.add_gridspec(
         4,
@@ -419,7 +560,7 @@ def run(config_path: Path, output: Path) -> dict:
     _require(
         isinstance(config, dict)
         and set(config) == {"schema", "timezone", "title", "subtitle", "examples"}
-        and config["schema"] == "endpoint_tape_pair_v1"
+        and config["schema"] in {"endpoint_tape_pair_v1", "endpoint_tape_pair_v2"}
         and isinstance(config["examples"], list)
         and len(config["examples"]) == 2,
         "invalid tape-pair configuration",
@@ -429,7 +570,11 @@ def run(config_path: Path, output: Path) -> dict:
     figure = output / "gpus_cast_endpoint_ew.png"
     render_pair(examples, figure, title=config["title"], subtitle=config["subtitle"])
     numerical = {
-        "schema": "endpoint_tape_pair_summary_v1",
+        "schema": (
+            "endpoint_tape_pair_summary_v2"
+            if config["schema"] == "endpoint_tape_pair_v2"
+            else "endpoint_tape_pair_summary_v1"
+        ),
         "config_sha256": _sha256(config_path),
         "pair_identity": _canonical_sha(
             [{"member": item["member"], "start": item["start"], "end": item["end"], "base": item["base_identity"], "features": item["feature_identity"]} for item in examples]

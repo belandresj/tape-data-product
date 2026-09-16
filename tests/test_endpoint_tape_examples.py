@@ -84,6 +84,30 @@ def test_render_identity_checked_pair(tmp_path):
     assert json.loads((tmp_path / "output/artifacts.json").read_text())["artifacts"]
 
 
+def test_render_endpoint_aligned_pair(tmp_path):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    day = "2026-06-18"
+    start = int(datetime.fromisoformat(day + "T09:50:00").replace(tzinfo=ZoneInfo("America/New_York")).timestamp()) * 1_000_000_000
+    examples = []
+    for symbol in ("AAA", "BBB"):
+        base = tmp_path / symbol / "base"
+        features = tmp_path / symbol / "features"
+        partition(base, f"{day}/{symbol}", start, feature=False)
+        partition(features, f"{day}/{symbol}", start, feature=True)
+        examples.append({"member": f"{day}/{symbol}", "endpoint": "09:54:59", "base_partition": str(base), "feature_partition": str(features), "lineage_status": "synthetic fixture"})
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"schema": "endpoint_tape_pair_v2", "timezone": "America/New_York", "title": "Pair", "subtitle": "Synthetic", "examples": examples}))
+    result = run(config, tmp_path / "output")
+    assert result["schema"] == "endpoint_tape_pair_summary_v2"
+    assert result["examples"][0]["endpoint"] == "09:54:59"
+    assert result["examples"][0]["endpoint_features"]["midpoint_rms_5s_bps_hl30s"] == 43.0
+    image = Image.open(tmp_path / "output/gpus_cast_endpoint_ew.png")
+    assert image.width >= 3000
+    assert 1000 <= image.height < 2000
+
+
 def test_rejects_changed_partition(tmp_path):
     from datetime import datetime
     from zoneinfo import ZoneInfo
