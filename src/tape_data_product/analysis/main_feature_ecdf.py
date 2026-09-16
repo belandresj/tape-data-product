@@ -98,6 +98,12 @@ def _gate_names(view: str) -> tuple[str, str]:
     return f"trade_rate_per_second_{suffix}", f"trade_age_p90_seconds_{window}"
 
 
+def _reason_name(metric: Metric, field: str) -> str:
+    if metric.source == "base":
+        return metric.stem.removesuffix("_seconds") + "_reason_mask"
+    return field + "_reason_mask"
+
+
 def _session_ids(interval_end_ns: np.ndarray, session_date: str) -> np.ndarray:
     day = date.fromisoformat(session_date)
     local_noon = datetime.combine(day, datetime_time(12), ZoneInfo("America/New_York"))
@@ -112,7 +118,10 @@ def _session_ids(interval_end_ns: np.ndarray, session_date: str) -> np.ndarray:
 
 
 def _as_numpy(batch, name: str) -> np.ndarray:
-    return batch.column(batch.schema.get_field_index(name)).to_numpy(zero_copy_only=False)
+    index = batch.schema.get_field_index(name)
+    if index < 0:
+        raise ValueError(f"projected batch is missing {name}")
+    return batch.column(index).to_numpy(zero_copy_only=False)
 
 
 class Accumulator:
@@ -179,7 +188,7 @@ def _columns(family: str) -> tuple[list[str], list[str]]:
         for metric in FAMILIES[family]:
             name = _feature_name(metric, view)
             target = base if metric.source == "base" else feature
-            target.update((name, name + "_reason_mask"))
+            target.update((name, _reason_name(metric, name)))
     return sorted(feature), sorted(base)
 
 
@@ -242,7 +251,7 @@ def _calculate_family(payload: dict, members: list[dict], family: str, batch_siz
                     name = _feature_name(metric, view)
                     batch = base_batch if metric.source == "base" else feature_batch
                     values = _as_numpy(batch, name)
-                    valid = gate & (_as_numpy(batch, name + "_reason_mask") == 0) & np.isfinite(values)
+                    valid = gate & (_as_numpy(batch, _reason_name(metric, name)) == 0) & np.isfinite(values)
                     for session_index, session in enumerate(SESSIONS):
                         selected = valid if session == "pooled" else valid & (session_ids == session_index)
                         accumulators[(metric.key, view, session)].add(values[selected])
@@ -308,9 +317,7 @@ def calculate(inventory: Path, output: Path, *, families: tuple[str, ...] = tupl
         "release": payload.get("release"),
         "members": len(members),
         "families": existing["families"],
-        "elapsed_seconds": time.monotonic() - started + sum(
-            family["elapsed_seconds"] for family in existing["families"].values()
-        ),
+        "elapsed_seconds": time.monotonic() - started,
     }
     _write_json(output / "numerical.json", numerical)
     if partial.exists():
@@ -373,7 +380,8 @@ def render(numerical_path: Path, output: Path, *, dpi: int = 190) -> dict:
                 ticks = _native_ticks(maximum, metric["transform"])
                 axis.set_xticks(np.log1p(ticks) if metric["transform"] == "log1p" else ticks)
                 axis.set_xticklabels([_format_tick(value) for value in ticks])
-                axis.set_xlim(0, math.log1p(maximum) if metric["transform"] == "log1p" else max(1, maximum))
+                upper = math.log1p(maximum) if metric["transform"] == "log1p" else max(1, maximum)
+                axis.set_xlim(0, max(1e-6, upper))
                 axis.set_ylim(0, 100.8)
                 axis.grid(axis="y", color="#cbd5e1", alpha=.55, linewidth=.8)
                 axis.spines[["top", "right"]].set_visible(False)
