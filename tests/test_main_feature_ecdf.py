@@ -36,7 +36,7 @@ def _write_member(root: Path):
     base = {"interval_end_ns": endpoints}
     for stem in ("trade_age_seconds", "quote_age_seconds", "midpoint_change_age_seconds"):
         base[stem] = [0.0, 1.0, 2.0]
-        base[stem + "_reason_mask"] = [0, 0, 0]
+        base[stem.removesuffix("_seconds") + "_reason_mask"] = [0, 0, 0]
     pq.write_table(pa.table(feature), feature_dir / "features.parquet")
     pq.write_table(pa.table(base), base_dir / "base.parquet")
     inventory = root / "inventory.json"
