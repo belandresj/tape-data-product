@@ -246,3 +246,27 @@ section-five plan, freshness p90 conditions, no dollar-rate floor, and no
 duration state machine. The result is descriptive tape-state retrieval, not
 predictive evidence or executable expectancy. No plots, profitability work,
 wider-corpus run, push, publication, or installed-release change was performed.
+
+## Post-checkpoint report episode summary
+
+For Report V2, the saved five-date projection was reduced into gap-tolerant
+periods without rerunning or changing the seven-condition feature screen. A
+period starts on a matching second, allows fewer than 30 consecutive eligible
+nonmatching seconds, and splits at 30 consecutive nonmatches, unavailable data,
+or a session boundary. The report retains periods lasting at least 600 seconds
+with matching occupancy of at least 0.80. A symbol-day is retained when it has
+at least one such period.
+
+The fixed rule retained **35 of 286 symbol-days (12.2%)**, with 55 periods
+across 31 distinct symbols. For each retained symbol-day, the longest period
+had a median duration of 883 seconds, a 75th percentile of 1,484 seconds, a
+90th percentile of 2,418.2 seconds, and a maximum of 3,190 seconds. Period
+counts were 33 premarket, 19 RTH and 3 after-hours.
+
+The multi-date reducer is source revision
+`44fb73b8872757e16b2533a52996ad8b17fa1733`. Six focused tests passed. The
+7,526-byte output has SHA-256
+`8c335edbe16afda89d297cd79efbab630e67228bd3edfd6023ee87f092c4110e`
+and remains in private VM control storage. The run took 17.92 seconds wall with
+727,008 KiB maximum resident memory. This report summary is a retrospective
+research selection, not a live entry rule or evidence of profitable execution.
