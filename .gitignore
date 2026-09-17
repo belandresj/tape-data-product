@@ -10,7 +10,7 @@ build/
 dist/
 .DS_Store
 private/
-data/
+/data/
 output/
 *.parquet
 *.sqlite*
@@ -21,3 +21,4 @@ handoff/
 
 # Private operational evidence and disposable working notes.
 /local_docs/
+/AGENTS.md
