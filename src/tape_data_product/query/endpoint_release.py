@@ -25,8 +25,13 @@ REFERENCE_VERSION = "endpoint_ew_reference_v1"
 PILOT_ALGORITHM = "month_event_rank_quartiles_v1"
 PILOT_SEED = "phase4-pilot-v1"
 PILOT_MONTHS = tuple(f"2026-{month:02d}" for month in range(3, 9))
+SCALING_ALGORITHM = "month_event_rank_quartiles_five_per_cell_v1"
+SCALING_SEED = "phase4-scaling-v1"
+SCALING_MEMBERS_PER_CELL = 5
+FULL_ALGORITHM = "accepted_population_order_v1"
 EXPECTED_ROWS = 57_600
 READ_BUDGET_BYTES = 8 * 1024**3
+FULL_REFERENCE_READ_BUDGET_BYTES = 128 * 1024**3
 OUTPUT_SCRATCH_CAP_BYTES = 4 * 1024**3
 FREE_DISK_RESERVE_BYTES = 20 * 1024**3
 
@@ -498,6 +503,71 @@ def select_pilot_members(records):
     return tuple(selected)
 
 
+def select_scaling_members(records):
+    """Select five feature-blind members from each month/rank-stratum cell."""
+    normalized = []
+    seen = set()
+    for record in records:
+        key = record["session_date"], record["symbol"]
+        if key in seen:
+            raise ContractError("duplicate population member")
+        seen.add(key)
+        event_count = record["event_count"]
+        if type(event_count) is not int or event_count < 0:
+            raise ContractError("invalid admitted raw event count")
+        normalized.append({**record, "session_date": key[0], "symbol": key[1], "event_count": event_count})
+    selected = []
+    used_symbols = set()
+    for month in PILOT_MONTHS:
+        monthly = sorted(
+            (row for row in normalized if row["session_date"][:7] == month),
+            key=lambda row: (row["event_count"], row["session_date"], row["symbol"]),
+        )
+        if not monthly:
+            raise ContractError(f"scaling selection missing month {month}")
+        strata = {value: [] for value in range(4)}
+        count = len(monthly)
+        for rank, row in enumerate(monthly):
+            strata[min(3, (4 * rank) // count)].append((rank, row))
+        for stratum in range(4):
+            candidates = sorted(
+                strata[stratum],
+                key=lambda item: (
+                    hashlib.sha256(
+                        f"{SCALING_SEED}|{item[1]['session_date']}|{item[1]['symbol']}".encode()
+                    ).hexdigest(),
+                    item[1]["session_date"],
+                    item[1]["symbol"],
+                ),
+            )
+            if len(candidates) < SCALING_MEMBERS_PER_CELL:
+                raise ContractError(f"scaling selection has fewer than five members in {month} stratum {stratum}")
+            remaining = list(candidates)
+            for cell_index in range(SCALING_MEMBERS_PER_CELL):
+                available = [item for item in remaining if item[1]["symbol"] not in used_symbols]
+                fallback = not bool(available)
+                rank, row = (available or remaining)[0]
+                remaining.remove((rank, row))
+                used_symbols.add(row["symbol"])
+                selected.append(
+                    {
+                        **row,
+                        "month": month,
+                        "stratum": stratum,
+                        "cell_index": cell_index,
+                        "monthly_rank": rank,
+                        "monthly_members": count,
+                        "symbol_repeat_fallback": fallback,
+                        "selection_hash": hashlib.sha256(
+                            f"{SCALING_SEED}|{row['session_date']}|{row['symbol']}".encode()
+                        ).hexdigest(),
+                    }
+                )
+    if len(selected) != len(PILOT_MONTHS) * 4 * SCALING_MEMBERS_PER_CELL:
+        raise ContractError("scaling selection did not produce 120 members")
+    return tuple(selected)
+
+
 def _load_population(plan_path, ledger_path):
     plan_path, ledger_path = Path(plan_path), Path(ledger_path)
     plan = read_json(plan_path)
@@ -772,6 +842,356 @@ def build_endpoint_reference(
     }
 
 
+def build_endpoint_scaling_reference(
+    plan_path,
+    ledger_path,
+    completion_path,
+    base_root,
+    feature_root,
+    output,
+    *,
+    expected_plan_sha256,
+    expected_population_sha256,
+):
+    """Build an immutable 120-member metadata-only scaling reference."""
+    started = time.perf_counter()
+    base_root, feature_root, output = Path(base_root), Path(feature_root), Path(output)
+    plan, plan_sha, population, metadata_bytes = _load_population(plan_path, ledger_path)
+    if plan_sha != expected_plan_sha256:
+        raise ContractError("accepted plan identity mismatch")
+    completion_path = Path(completion_path)
+    completion = read_json(completion_path)
+    completion_sha, completion_bytes = sha256_file(completion_path)
+    metadata_bytes += completion_bytes
+    if (
+        completion.get("status") != "complete"
+        or completion.get("plan_sha256") != plan_sha
+        or completion.get("population_sha256") != expected_population_sha256
+        or completion.get("companions") != {"members": 5208, "missing": 0}
+    ):
+        raise ContractError("completed population evidence mismatch")
+    release = completion.get("release")
+    if release != plan.get("release"):
+        raise ContractError("plan/completion release identity mismatch")
+    config = FeatureConfig.from_dict(plan["config"])
+    selected = select_scaling_members(population)
+    projected_validation_bytes = 0
+    for row in selected:
+        relative = Path(f"session_date={row['session_date']}") / f"symbol={row['symbol']}"
+        for path in (
+            base_root / relative / "manifest.json",
+            base_root / relative / "base.parquet",
+            base_root / relative / "context.json",
+            feature_root / relative / "manifest.json",
+            feature_root / relative / "features.parquet",
+            feature_root / relative / "support.parquet",
+        ):
+            projected_validation_bytes += path.stat().st_size
+    projected_read_bytes = metadata_bytes + projected_validation_bytes
+    if projected_read_bytes > READ_BUDGET_BYTES:
+        raise ContractError(
+            f"scaling reference projected reads {projected_read_bytes} exceed {READ_BUDGET_BYTES}"
+        )
+    if output.exists():
+        raise FileExistsError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    disk = shutil.disk_usage(output.parent)
+    if disk.free - OUTPUT_SCRATCH_CAP_BYTES < FREE_DISK_RESERVE_BYTES:
+        raise ContractError("insufficient free disk for scaling-reference scratch cap and reserve")
+    attempt = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
+    validation_bytes = 0
+    try:
+        records = []
+        for selected_row in selected:
+            day, symbol = selected_row["session_date"], selected_row["symbol"]
+            relative = f"session_date={day}/symbol={symbol}"
+            base_partition = _within(base_root, relative)
+            feature_partition = _within(feature_root, relative)
+            if (
+                Path(selected_row["ledger_base_manifest"]).resolve()
+                != (base_partition / "manifest.json").resolve()
+                or Path(selected_row["ledger_feature_manifest"]).resolve()
+                != (feature_partition / "manifest.json").resolve()
+            ):
+                raise ContractError("ledger member locator does not match trusted roots")
+            validated = _validate_member(
+                base_partition,
+                feature_partition,
+                expected_member=(day, symbol),
+                expected_descriptor=selected_row,
+                expected_release=release,
+                config=config,
+                scan_rows=True,
+            )
+            validation_bytes += validated.pop("consumed_bytes")
+            records.append(
+                {
+                    "member": f"{day}/{symbol}",
+                    "session_date": day,
+                    "symbol": symbol,
+                    "base_path": relative,
+                    "feature_path": relative,
+                    **{
+                        key: selected_row[key]
+                        for key in (
+                            "month",
+                            "stratum",
+                            "cell_index",
+                            "monthly_rank",
+                            "monthly_members",
+                            "event_count",
+                            "symbol_repeat_fallback",
+                            "selection_hash",
+                            "source_pair_sha256",
+                            "context_sha256",
+                        )
+                    },
+                    **validated,
+                }
+            )
+        members_path = attempt / "members.jsonl"
+        with members_path.open("x") as stream:
+            for record in records:
+                stream.write(canonical_json(record) + "\n")
+        members_sha, members_bytes = sha256_file(members_path)
+        manifest = {
+            "version": REFERENCE_VERSION,
+            "reference_kind": "scaling",
+            "synthetic": False,
+            "selection": {
+                "algorithm": SCALING_ALGORITHM,
+                "seed": SCALING_SEED,
+                "months": list(PILOT_MONTHS),
+                "strata_per_month": 4,
+                "members_per_cell": SCALING_MEMBERS_PER_CELL,
+                "symbol_repeat_policy": "each_pick_prefers_first_hash_candidate_with_unseen_symbol_else_first_remaining_and_record_fallback",
+            },
+            "parent_population": {
+                "members": plan["expected_members"],
+                "plan_sha256": plan_sha,
+                "population_sha256": expected_population_sha256,
+                "admitted_index_sha256": plan["admitted_index_sha256"],
+                "admissions_sha256": plan["admissions_sha256"],
+                "inventory_sha256": plan["inventory_sha256"],
+                "completion_sha256": completion_sha,
+            },
+            "release": {
+                key: release[key]
+                for key in (
+                    "source_revision",
+                    "wheel_sha256",
+                    "contract_identity",
+                    "base_implementation_identity",
+                    "feature_implementation_identity",
+                )
+            },
+            "contract_config": config.to_dict(),
+            "schemas": {
+                "base": schema_hash(BASE_SCHEMA),
+                "features": schema_hash(feature_schema(config)),
+                "support": schema_hash(support_schema(config)),
+            },
+            "members": {
+                "path": "members.jsonl",
+                "sha256": members_sha,
+                "bytes": members_bytes,
+                "count": len(records),
+                "rows_per_table": len(records) * EXPECTED_ROWS,
+            },
+            "validation": {
+                "status": "passed",
+                "method": "full_companion_hash_schema_grid_key_value_mask_validation",
+                "metadata_inventory_members": len(population),
+                "metadata_bytes": metadata_bytes,
+                "consumed_validation_bytes": validation_bytes,
+                "independent_feature_reconstruction": "not_claimed",
+            },
+        }
+        manifest["reference_identity"] = digest(manifest)
+        write_atomic_json(attempt / "manifest.json", manifest)
+        os.rename(attempt, output)
+    except Exception:
+        shutil.rmtree(attempt, ignore_errors=True)
+        raise
+    return {
+        "reference_identity": manifest["reference_identity"],
+        "members": len(records),
+        "rows_per_table": len(records) * EXPECTED_ROWS,
+        "manifest_path": str(output / "manifest.json"),
+        "validation_bytes": validation_bytes,
+        "metadata_bytes": metadata_bytes,
+        "elapsed_seconds": time.perf_counter() - started,
+    }
+
+
+def build_endpoint_full_reference(
+    plan_path,
+    ledger_path,
+    completion_path,
+    base_root,
+    feature_root,
+    output,
+    *,
+    expected_plan_sha256,
+    expected_population_sha256,
+):
+    """Build an immutable reference for every member of the accepted population."""
+    started = time.perf_counter()
+    base_root, feature_root, output = Path(base_root), Path(feature_root), Path(output)
+    plan, plan_sha, population, metadata_bytes = _load_population(plan_path, ledger_path)
+    if plan_sha != expected_plan_sha256:
+        raise ContractError("accepted plan identity mismatch")
+    completion_path = Path(completion_path)
+    completion = read_json(completion_path)
+    completion_sha, completion_bytes = sha256_file(completion_path)
+    metadata_bytes += completion_bytes
+    expected_members = plan["expected_members"]
+    if (
+        completion.get("status") != "complete"
+        or completion.get("plan_sha256") != plan_sha
+        or completion.get("population_sha256") != expected_population_sha256
+        or completion.get("companions") != {"members": expected_members, "missing": 0}
+    ):
+        raise ContractError("completed population evidence mismatch")
+    release = completion.get("release")
+    if release != plan.get("release"):
+        raise ContractError("plan/completion release identity mismatch")
+    config = FeatureConfig.from_dict(plan["config"])
+    projected_validation_bytes = 0
+    for row in population:
+        relative = Path(f"session_date={row['session_date']}") / f"symbol={row['symbol']}"
+        for path in (
+            base_root / relative / "manifest.json",
+            base_root / relative / "base.parquet",
+            base_root / relative / "context.json",
+            feature_root / relative / "manifest.json",
+            feature_root / relative / "features.parquet",
+            feature_root / relative / "support.parquet",
+        ):
+            projected_validation_bytes += path.stat().st_size
+    projected_read_bytes = metadata_bytes + projected_validation_bytes
+    if projected_read_bytes > FULL_REFERENCE_READ_BUDGET_BYTES:
+        raise ContractError(
+            f"full reference projected reads {projected_read_bytes} exceed "
+            f"{FULL_REFERENCE_READ_BUDGET_BYTES}"
+        )
+    if output.exists():
+        raise FileExistsError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    disk = shutil.disk_usage(output.parent)
+    if disk.free - OUTPUT_SCRATCH_CAP_BYTES < FREE_DISK_RESERVE_BYTES:
+        raise ContractError("insufficient free disk for full-reference scratch cap and reserve")
+    attempt = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
+    validation_bytes = 0
+    try:
+        records = []
+        for selected_row in population:
+            day, symbol = selected_row["session_date"], selected_row["symbol"]
+            relative = f"session_date={day}/symbol={symbol}"
+            base_partition = _within(base_root, relative)
+            feature_partition = _within(feature_root, relative)
+            if (
+                Path(selected_row["ledger_base_manifest"]).resolve()
+                != (base_partition / "manifest.json").resolve()
+                or Path(selected_row["ledger_feature_manifest"]).resolve()
+                != (feature_partition / "manifest.json").resolve()
+            ):
+                raise ContractError("ledger member locator does not match trusted roots")
+            validated = _validate_member(
+                base_partition,
+                feature_partition,
+                expected_member=(day, symbol),
+                expected_descriptor=selected_row,
+                expected_release=release,
+                config=config,
+                scan_rows=True,
+            )
+            validation_bytes += validated.pop("consumed_bytes")
+            records.append(
+                {
+                    "member": f"{day}/{symbol}",
+                    "session_date": day,
+                    "symbol": symbol,
+                    "base_path": relative,
+                    "feature_path": relative,
+                    "population_index": len(records),
+                    "event_count": selected_row["event_count"],
+                    "source_pair_sha256": selected_row["source_pair_sha256"],
+                    "context_sha256": selected_row["context_sha256"],
+                    **validated,
+                }
+            )
+        members_path = attempt / "members.jsonl"
+        with members_path.open("x") as stream:
+            for record in records:
+                stream.write(canonical_json(record) + "\n")
+        members_sha, members_bytes = sha256_file(members_path)
+        manifest = {
+            "version": REFERENCE_VERSION,
+            "reference_kind": "full",
+            "synthetic": False,
+            "selection": {
+                "algorithm": FULL_ALGORITHM,
+                "order": "accepted_plan_members",
+            },
+            "parent_population": {
+                "members": expected_members,
+                "plan_sha256": plan_sha,
+                "population_sha256": expected_population_sha256,
+                "admitted_index_sha256": plan["admitted_index_sha256"],
+                "admissions_sha256": plan["admissions_sha256"],
+                "inventory_sha256": plan["inventory_sha256"],
+                "completion_sha256": completion_sha,
+            },
+            "release": {
+                key: release[key]
+                for key in (
+                    "source_revision",
+                    "wheel_sha256",
+                    "contract_identity",
+                    "base_implementation_identity",
+                    "feature_implementation_identity",
+                )
+            },
+            "contract_config": config.to_dict(),
+            "schemas": {
+                "base": schema_hash(BASE_SCHEMA),
+                "features": schema_hash(feature_schema(config)),
+                "support": schema_hash(support_schema(config)),
+            },
+            "members": {
+                "path": "members.jsonl",
+                "sha256": members_sha,
+                "bytes": members_bytes,
+                "count": len(records),
+                "rows_per_table": len(records) * EXPECTED_ROWS,
+            },
+            "validation": {
+                "status": "passed",
+                "method": "full_companion_hash_schema_grid_key_value_mask_validation",
+                "metadata_inventory_members": len(population),
+                "metadata_bytes": metadata_bytes,
+                "consumed_validation_bytes": validation_bytes,
+                "independent_feature_reconstruction": "not_claimed",
+            },
+        }
+        manifest["reference_identity"] = digest(manifest)
+        write_atomic_json(attempt / "manifest.json", manifest)
+        os.rename(attempt, output)
+    except Exception:
+        shutil.rmtree(attempt, ignore_errors=True)
+        raise
+    return {
+        "reference_identity": manifest["reference_identity"],
+        "members": len(records),
+        "rows_per_table": len(records) * EXPECTED_ROWS,
+        "manifest_path": str(output / "manifest.json"),
+        "validation_bytes": validation_bytes,
+        "metadata_bytes": metadata_bytes,
+        "elapsed_seconds": time.perf_counter() - started,
+    }
+
+
 def _verify_reference_manifest(root: Path, expected_identity: str):
     manifest_path = root / "manifest.json"
     manifest, manifest_snapshot, manifest_bytes, _ = _read_json_stable(manifest_path)
@@ -783,7 +1203,7 @@ def _verify_reference_manifest(root: Path, expected_identity: str):
         raise ContractError("unexpected endpoint reference identity")
     if (
         manifest.get("version") != REFERENCE_VERSION
-        or manifest.get("reference_kind") not in ("pilot", "synthetic")
+        or manifest.get("reference_kind") not in ("pilot", "scaling", "full", "synthetic")
         or manifest.get("members", {}).get("path") != "members.jsonl"
     ):
         raise ContractError("incompatible endpoint reference")
@@ -848,6 +1268,64 @@ def _verify_reference_manifest(root: Path, expected_identity: str):
             or cells != expected_cells
         ):
             raise ContractError("invalid deterministic pilot declaration")
+    if manifest["reference_kind"] == "scaling":
+        cells = []
+        for row in members:
+            try:
+                start_ns, end_ns = session_bounds(row["session_date"])
+            except (KeyError, TypeError) as error:
+                raise ContractError("invalid scaling member coverage") from error
+            expected_coverage = {
+                "kind": "full",
+                "session_start_ns": start_ns,
+                "end_ns": end_ns,
+                "expected_rows": EXPECTED_ROWS,
+            }
+            cells.append((row.get("month"), row.get("stratum"), row.get("cell_index")))
+            if row.get("coverage") != expected_coverage:
+                raise ContractError("scaling member is not an exact full session")
+        expected_cells = [
+            (month, stratum, cell_index)
+            for month in PILOT_MONTHS
+            for stratum in range(4)
+            for cell_index in range(SCALING_MEMBERS_PER_CELL)
+        ]
+        selection = manifest.get("selection", {})
+        if (
+            manifest.get("synthetic") is not False
+            or len(members) != len(expected_cells)
+            or manifest["members"]["rows_per_table"] != len(expected_cells) * EXPECTED_ROWS
+            or selection.get("algorithm") != SCALING_ALGORITHM
+            or selection.get("seed") != SCALING_SEED
+            or selection.get("members_per_cell") != SCALING_MEMBERS_PER_CELL
+            or cells != expected_cells
+        ):
+            raise ContractError("invalid deterministic scaling declaration")
+    if manifest["reference_kind"] == "full":
+        expected_members = manifest.get("parent_population", {}).get("members")
+        selection = manifest.get("selection", {})
+        if (
+            manifest.get("synthetic") is not False
+            or type(expected_members) is not int
+            or expected_members <= 0
+            or len(members) != expected_members
+            or manifest["members"]["rows_per_table"] != expected_members * EXPECTED_ROWS
+            or selection
+            != {"algorithm": FULL_ALGORITHM, "order": "accepted_plan_members"}
+        ):
+            raise ContractError("invalid full-population declaration")
+        for index, row in enumerate(members):
+            try:
+                start_ns, end_ns = session_bounds(row["session_date"])
+            except (KeyError, TypeError) as error:
+                raise ContractError("invalid full member coverage") from error
+            if row.get("population_index") != index or row.get("coverage") != {
+                "kind": "full",
+                "session_start_ns": start_ns,
+                "end_ns": end_ns,
+                "expected_rows": EXPECTED_ROWS,
+            }:
+                raise ContractError("full member order or coverage mismatch")
     if manifest["reference_kind"] == "synthetic" and manifest.get("synthetic") is not True:
         raise ContractError("synthetic/real reference mixture")
     return (

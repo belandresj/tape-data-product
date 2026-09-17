@@ -7,7 +7,11 @@ from ..contracts.config import ContractError, FeatureConfig
 from ..integrity import read_json
 from .endpoint_reader import describe_endpoint_fields, iter_endpoint_batches
 from .endpoint_database import open_tape_database
-from .endpoint_release import build_endpoint_reference, open_endpoint_reference
+from .endpoint_release import (
+    build_endpoint_full_reference,
+    build_endpoint_reference,
+    open_endpoint_reference,
+)
 from .endpoint_selection import EndpointSelection
 
 
@@ -27,6 +31,17 @@ def register_commands(commands):
     pilot.add_argument("--expected-plan-sha256", required=True)
     pilot.add_argument("--expected-population-sha256", required=True)
     pilot.set_defaults(func=_pilot)
+
+    full = subcommands.add_parser("full", help="Build the accepted full-population reference")
+    full.add_argument("--plan", required=True)
+    full.add_argument("--ledger", required=True)
+    full.add_argument("--completion", required=True)
+    full.add_argument("--base-root", required=True)
+    full.add_argument("--feature-root", required=True)
+    full.add_argument("--output", required=True)
+    full.add_argument("--expected-plan-sha256", required=True)
+    full.add_argument("--expected-population-sha256", required=True)
+    full.set_defaults(func=_full)
 
     verify = subcommands.add_parser("verify", help="Verify a reference and consumed bytes")
     _reference_arguments(verify)
@@ -103,6 +118,19 @@ def _open_database(args):
 
 def _pilot(args):
     return build_endpoint_reference(
+        args.plan,
+        args.ledger,
+        args.completion,
+        args.base_root,
+        args.feature_root,
+        args.output,
+        expected_plan_sha256=args.expected_plan_sha256,
+        expected_population_sha256=args.expected_population_sha256,
+    )
+
+
+def _full(args):
+    return build_endpoint_full_reference(
         args.plan,
         args.ledger,
         args.completion,
