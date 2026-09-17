@@ -1,4 +1,4 @@
-"""Endpoint/EW and retained legacy query interfaces."""
+"""Endpoint/EW reference, projected-reader, and scoped-database interfaces."""
 
 from .endpoint_reader import describe_endpoint_fields, iter_endpoint_batches
 from .endpoint_release import (

@@ -190,10 +190,8 @@
   "release": {
     "base_implementation_identity": "a6cbbdba294b58629a0d72f71e9e495af731f19566620eed51f90fdf721540e5",
     "contract_identity": "bf4d8c1211bf096d9b0ab3b2c0d62f3858ff1da738b42aa8c3ed4cba67020bd1",
-    "executable": "/opt/tape-data-product/releases/integrated-ea2e161/venv/bin/tape-product",
     "feature_implementation_identity": "d82235bed5ddd1bd800f11876bd3dc80760283de5f25740c30a0924f2c605afb",
     "source_revision": "ea2e16128225a91ceb6003fcb3f6ef80985ba8e0",
-    "wheel_path": "/opt/tape-data-product/releases/integrated-ea2e161/wheel/tape_data_product-0.1.0-py3-none-any.whl",
     "wheel_sha256": "a506c2ad2fd7aabeb6d214a876f6741f303d8bc713fb34a4b6dbbc83d85cafe9"
   },
   "represented_rows": 299980800,

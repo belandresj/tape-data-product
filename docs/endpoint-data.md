@@ -144,12 +144,13 @@ Parquet instead of printing rows. Sessions remain unrestricted unless the SQL
 contains an explicit `session` predicate.
 
 ```bash
-QUERY_RELEASE=/opt/tape-data-product/releases/<query-release>/venv
+test -n "$QUERY_RELEASE" -a -n "$QUERY_CATALOG" -a -n "$QUERY_CATALOG_IDENTITY"
+test -n "$BASE_ROOT" -a -n "$FEATURE_ROOT"
 $QUERY_RELEASE/bin/tape-product endpoint-data sql \
-  --catalog /srv/tape-data-product/control/<query-catalog> \
-  --identity <query-catalog-identity> \
-  --base-root /srv/tape-data-product/derived/<release>/base \
-  --feature-root /srv/tape-data-product/derived/<release>/features \
+  --catalog "$QUERY_CATALOG" \
+  --identity "$QUERY_CATALOG_IDENTITY" \
+  --base-root "$BASE_ROOT" \
+  --feature-root "$FEATURE_ROOT" \
   --start-date 2026-03-11 --end-date 2026-03-11 \
   --sql-file examples/endpoint-rms-threshold.sql --preview-limit 20
 ```

@@ -1,4 +1,4 @@
-"""Installed command interface for the local research workflow."""
+"""Installed command interface for the endpoint/EW V2 product."""
 
 import argparse
 import json
@@ -8,14 +8,9 @@ import sys
 def parser():
     result = argparse.ArgumentParser(
         prog="tape-product",
-        description="Acquire, calculate, query and reproduce direction-neutral tape measurements.",
+        description="Build, query, and reproduce the endpoint/EW tape-data product.",
     )
     commands = result.add_subparsers(dest="command", required=True)
-    demo = commands.add_parser("demo", help="Run a complete invented offline workflow")
-    demo.add_argument(
-        "--output", required=True, help="New output directory; never overwritten"
-    )
-    demo.set_defaults(func=_demo)
     from tape_data_product.acquisition.cli import register_commands as acquisition
     from tape_data_product.features.cli import register_commands as features
     from tape_data_product.analysis.cli import register_commands as analysis
@@ -30,14 +25,6 @@ def parser():
     calculate(commands)
     endpoint(commands)
     return result
-
-
-def _demo(args):
-    from tape_data_product.demo import run_demo
-
-    return run_demo(args.output)
-
-
 def main(argv=None):
     arguments = parser().parse_args(argv)
     try:

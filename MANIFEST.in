@@ -2,8 +2,7 @@ include requirements-verified.txt .env.example
 recursive-include config *.json
 recursive-include config *.lock
 recursive-include docs *.md *.json
-recursive-include reports *.md *.json *.png
-recursive-include examples *.py
+recursive-include reports *.md *.json *.csv *.png *.svg
 recursive-include scripts *.py
 recursive-include tests *.py
 prune build
