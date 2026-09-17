@@ -117,6 +117,7 @@ The additive command group preserves existing command meanings:
 
 ```text
 tape-product endpoint-data pilot
+tape-product endpoint-data full
 tape-product endpoint-data verify
 tape-product endpoint-data fields
 tape-product endpoint-data inspect
@@ -170,10 +171,6 @@ with open_tape_database(
     print(result.df())
 ```
 
-## Current release boundary
+## Release boundary
 
-The accepted 24-member pilot supports `historical_membership`. Its source
-contexts do not contain usable discovery timestamps, so both discovery-dependent
-modes fail clearly rather than falling back. This checkpoint installs bounded
-query access but does not construct a full-universe query catalog or claim
-full-corpus query performance.
+The installed reader supports both deterministic pilot references and the accepted full-population reference. The V2 report’s full reference contains 5,208 members and 299,980,800 represented one-second rows. Historical-membership mode is available for that release. Discovery-dependent modes require usable discovery timestamps in the source contexts and fail clearly when those timestamps are unavailable; they never fall back silently.

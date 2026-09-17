@@ -1,17 +1,15 @@
 # Development
 
-Use [dataset build and reproduction](dataset-build.md) for installation and the supported stage-by-stage workflow. The package exposes `tape-product`; application code is installed with normal imports.
+Use Python 3.13. Build and install a wheel rather than importing from another repository or an installed release directory. Runtime dependencies are declared in `pyproject.toml`; the verified Linux closure is hash-pinned in `config/vps-python313-linux.lock`.
 
-Run the offline regression suite under live process-tree memory observation:
+The primary command is:
 
-```sh
-python -B scripts/measure.py output/tests.json python -B -m pytest -q
+```text
+tape-product --help
 ```
 
-Use a fresh evidence filename on each run. Tests use invented fixtures and fake provider/object-store clients; network and sibling-checkout reads are rejected. Small unit fixtures that test calculation or publication behavior supply explicit fake disk capacity; production disk-reserve guards remain active and have separate failure tests.
+For focused changes, run the tests owning the affected package and at least one installed-package CLI smoke check. Calculation-runner resource tests are Linux-specific because they use process-tree I/O counters and worker controls. Report-only changes should verify artifact hashes, local Markdown links, numerical/table reconciliation, and the rendered figures they affect.
 
-The [architecture](architecture.md) explains package responsibilities and complexity. The [V1 feature contract](reference/v1/feature-contract.md), [compact layout](reference/v1/compact-layout.md) and [query contract](reference/v1/query-contract.md) define the implemented numerical and timing behavior. Changing equations, populations, support, masks, zero/null rules or query activation requires explicit semantic versioning and regression evidence.
+Semantic changes to clocks, event populations, units, masks, coverage, resets, or feature equations require a new versioned contract and regression evidence. Do not silently reinterpret an existing release identity. Integrity verification, independent numerical reconstruction, descriptive market evidence, and executable trading expectancy remain separate claims.
 
-Before sharing changes, stage the intended files and run `python scripts/review_contents.py`. It checks the exact Git index for broken documentation links, machine paths, excluded data files, common credential patterns and published figure identities. It is a heuristic check, not a guarantee that every secret can be detected. Implementation plans, coordination records and obsolete implementation prose do not belong in the repository or installed wheel.
-
-The CI workflow installs a wheel, runs the offline suite, and runs the guarded demo outside the checkout on Python 3.13/Linux. This is configured coverage; the [legacy V1 verification record](../reports/verification/legacy-v1/README.md) distinguishes the environment actually executed from CI that had not yet run. No remote publication or GitHub execution is implied by local verification.
+Generated datasets, credentials, private catalogs, operational receipts, and temporary analysis belong outside Git. The public repository retains code, current contracts and usage documentation, focused tests, sanitized aggregate report data, and final figures.

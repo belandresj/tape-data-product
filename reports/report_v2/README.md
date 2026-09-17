@@ -1,70 +1,23 @@
-# Report V2 artifacts
+# V2 report artifacts
 
-This directory contains the reviewable, publication-intended artifacts for the endpoint/EW report. It does not contain private member catalogs, absolute VM paths, detailed market-data rows or operational logs.
+This directory contains the public, reviewable artifacts supporting the endpoint/EW report published as the repository root `README.md`.
 
-## Layout
+## Contents
 
-- `assets/`: rendered report figures in PNG and SVG form.
-- `data/`: small sanitized figure-ready aggregates, summaries and artifact identities that support the published figures.
-- [`report_v2.md`](report_v2.md): the sparse final-report outline and figure placement plan.
-- [`report_v2_draft.md`](report_v2_draft.md): the evolving report narrative and figure plan.
+- [`report_v2_final.md`](report_v2_final.md): preserved final client-facing report before its root-relative link adjustment.
+- `assets/`: rendered publication figures in PNG and SVG form.
+- `data/`: sanitized aggregates, summaries, and artifact identities supporting the published figures.
 
-Reusable report calculation and rendering code belongs in [`src/tape_data_product/analysis`](../../src/tape_data_product/analysis). Product query and retrieval code belongs in [`src/tape_data_product/query`](../../src/tape_data_product/query). Do not create a second report-specific query engine beneath this directory.
+Private member catalogs, member-level contribution tables, detailed market-data rows, absolute VM paths, execution logs, and credentials are intentionally excluded.
 
-Private source inventories, VM execution receipts, measured resource logs and disposable previews belong in ignored `local_docs/` or the private VM control/report roots. A figure moves here only after its aggregate reconciles to the selected release, its rendering has been inspected, and its tracked data contain no private member-level details.
+Reusable calculation and rendering code lives in [`src/tape_data_product/analysis`](../../src/tape_data_product/analysis). Reference construction and query access live in [`src/tape_data_product/query`](../../src/tape_data_product/query). The report directory contains publication artifacts, not a second query or calculation implementation.
 
-The historical V1 files in `reports/report_assets/` retain their existing identity. Report V2 work must not overwrite them.
+## Lineage highlights
 
-## GPUS/CAST quoted-spread comparison
+The five-date structured-tape query returned 189,162 matching endpoints from 286 represented symbol-days. The saved reducer retained periods lasting at least ten minutes with at least 80% matching occupancy while allowing interruptions shorter than 30 seconds. Its publication-safe aggregate is [`data/strong_tape_episode_population.json`](data/strong_tape_episode_population.json).
 
-`gpus_cast_quoted_spread_comparison.png` and `.svg` are rendered by
-[`gpus_cast_comparison.py`](../../src/tape_data_product/analysis/gpus_cast_comparison.py)
-from the two identity-checked base partitions and the saved
-[`gpus_cast_comparison_numerical_source.json`](data/gpus_cast_comparison_numerical_source.json).
-The numerical source fixes the candidate-3 endpoints at GPUS 09:52:15 ET and
-CAST 10:01:52 ET, the input identities, first-valid-midpoint rebasing values,
-and the endpoint feature values reported in Section 3.3. Machine-specific base
-partition paths are explicit command arguments rather than tracked defaults.
+The GPUS/CAST comparison is rendered by [`gpus_cast_comparison.py`](../../src/tape_data_product/analysis/gpus_cast_comparison.py) from identity-checked base partitions and [`data/gpus_cast_comparison_numerical_source.json`](data/gpus_cast_comparison_numerical_source.json). The fixed endpoints and rebasing values are saved so the illustration cannot drift silently.
 
-## Query implementation status
+`daily_completed_members` is produced by [`endpoint_population.py`](../../src/tape_data_product/analysis/endpoint_population.py) from verified inventory metadata. `daily_active_tape_hours` is produced from reconciled member gate accounting. Both publish date-level aggregates without disclosing symbol membership.
 
-The [SQL query checkpoint plan](../../planning/rewrite/section_5_query_product.md) defines three checkpoints: query a small subset, provide installed SQL/Python access, and run an all-session seven-condition screen across five dates. All three have been implemented on the VM branch. The five-date screen returned 189,162 matching observations from 286 represented symbol-days.
-
-Report Section 5 applies a separate, tracked reducer to those saved matches. It retains symbol-days containing a period of at least 10 minutes with at least 80% matching occupancy, allowing interruptions shorter than 30 seconds. The publication-safe aggregate is [`data/strong_tape_episode_population.json`](data/strong_tape_episode_population.json). Detailed member rows and operational artifacts remain private. This is a bounded five-date demonstration, not a full-corpus query or a trading-performance result.
-
-## Completed population figure
-
-`daily_completed_members` is generated by the additive package command below. The implementation and artifacts have been verified from the source checkout and on the VM, but this command is not yet part of an accepted installed release.
-
-```text
-tape-product report population \
-  --inventory PRIVATE_VERIFIED_INVENTORY.json \
-  --output NEW_IMMUTABLE_OUTPUT_DIRECTORY \
-  --expected-members 5208 \
-  --session-hours 16
-```
-
-The renderer is [`endpoint_population.py`](../../src/tape_data_product/analysis/endpoint_population.py). It reads metadata only, rejects duplicate symbol-date members, reconciles the daily counts to the inventory total, and publishes no symbol-level membership. The tracked CSV, summary and artifact record bind the figure to the verified source-inventory hash without exposing its private location.
-
-## Active-tape population figure
-
-`daily_active_tape_hours` is generated from the saved, verified member-level gate-accounting table rather than by rescanning feature rows:
-
-```text
-tape-product report activity-population \
-  --member-gate-accounting PRIVATE_MEMBER_GATE_ACCOUNTING.parquet \
-  --config VERIFIED_EXPANDED_CONFIG.json \
-  --output NEW_IMMUTABLE_OUTPUT_DIRECTORY \
-  --half-life-seconds 30 \
-  --session pooled \
-  --expected-members 5208 \
-  --expected-represented-seconds 299980800
-```
-
-The renderer selects exactly one pooled fast-gate record per member, checks `represented = gate_valid + gate_unavailable` and `gate_valid = gate_pass + gate_fail` at member and aggregate levels, and emits date-level data only. The tracked source identities bind the figure to the full-release Phase 4C accounting artifact and its explicit gate configuration without publishing member identifiers.
-
-## Joint-distribution figures
-
-`joint_distributions_active_tape.png` and `movement_spread_by_activity_band.png` are presentation renders of the saved full-release Phase 4C histograms. Their source run used reference identity `a1fab9c41bb51122ad49f9976f79b125a5542d2c2d4c73c4c2b0a23684d787ea`, scanned all 5,208 members and 299,980,800 represented seconds, and saved pooled/session, unconditional/activity-gated and activity-band accounting. The report renders use the gated pooled panels only. Updating their reader-facing titles did not rescan feature data or change bins, counts, denominators, axes or color normalization.
-
-The complete saved tables include private member-contribution records and remain in the private VM report area. The publication figures disclose their aggregate population, gate and pair-valid denominators without publishing symbol-level membership.
+The full-release joint-distribution analysis used reference identity `a1fab9c41bb51122ad49f9976f79b125a5542d2c2d4c73c4c2b0a23684d787ea`, scanned all 5,208 members and 299,980,800 represented seconds, and saved pooled/session and activity-conditioned accounting. Tracked figures disclose their population and validity denominators; detailed member contributions remain private.

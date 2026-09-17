@@ -1,48 +1,43 @@
-# Architecture and design
+# Architecture
 
-The installed `tape_data_product` package connects historical reference membership and minute screening to canonical SIP trade/NBBO quote pairs, compact features, verified releases, causal queries and report analysis. The [reproduction guide](dataset-build.md) is the supported workflow; the root README remains the research report.
+The installed `tape_data_product` package implements a bounded, identity-checked pipeline from canonical trade/quote inputs to one-second base measurements, endpoint/EW features, queryable release catalogs, and report artifacts.
 
-| Package | Responsibility |
+```text
+reference + minute screen
+  -> canonical trade/quote pairs
+  -> one-second base replay
+  -> endpoint/EW feature and support tables
+  -> verified full-population reference
+  -> projected Arrow or scoped DuckDB queries
+  -> reconciled report aggregates and figures
+```
+
+| Package/module | Responsibility |
 |---|---|
-| `acquisition` | Explicit provider requests, reference eligibility, consecutive-minute screening and bounded event normalization |
-| `storage` | Canonical pair inventories, exact object identities, local verification and explicit R2 transfer |
-| `features` | Event populations, one-second measurements, rolling estimates, compact schemas, integrity and independent reconstruction |
-| `query` | Expected release membership, verified projected reads and causal interval state |
-| `experiments` | Versioned descriptive threshold-query comparisons |
-| `analysis` | Horizon-specific report populations, distributions, numerical intermediates and offline figures |
-| `stages` | Effective settings, installed source/runtime identity and immutable output receipts |
-| `cli`, `demo` | Stage dispatch and a connected invented workflow |
+| `acquisition` | Provider requests, reference membership, minute screening, and canonical T/Q normalization |
+| `storage` | Local inventories, immutable object identities, verification, and explicit R2 transfer |
+| `contracts` | Endpoint/EW schemas, registry, configuration, masks, timing, and transition rules |
+| `replay` | Admission and streaming raw T/Q replay into `tape_base_1s_v1` |
+| `features.endpoint_ew` | Base-only construction of feature and support companions |
+| `calculate` / `calculate_runtime` | Immutable plans, per-member execution, restart/reuse, and resource accounting |
+| `query` | Reference construction, verified projected reads, DuckDB catalogs, predicates, runs, and exports |
+| `analysis` | Population accounting, ECDFs, joint distributions, worked examples, and offline rendering |
+| `cli` | The installed `tape-product` command surface |
 
-Parquet files and indexed catalogs hold the research dataset. Massive.com supplies the market observations; the author’s private Cloudflare R2 bucket retains acquired files as durable object storage. R2 access is optional: the supported calculation and report workflow operates on explicitly supplied local files.
+## Storage and identity
 
-Storage and computation are separate. This design retains historical inputs without keeping a compute server running, while allowing verified files to be reused across research runs. The tradeoff is transfer time and local disk management: R2 storage alone does not execute the Python calculations or provide an interactive query service. The supported transfer path stages complete named pairs and verifies their hashes before local processing. Repeated broad scans can therefore be limited by staging and cache capacity.
+Raw, base, feature, and support tables are immutable Parquet artifacts with canonical JSON manifests. Manifests bind member identity, source/control evidence, configuration, implementation identity, byte hashes, schemas, row counts, and validation evidence. Base compatibility is separated from feature configuration so alternative feature views can reuse compatible one-second measurements without replaying raw T/Q.
 
-## Semantics and provenance
+The accepted report population is represented by a verified reference rather than hard-coded paths. Readers require an expected reference identity and explicit trusted data roots. They recheck manifests and consumed companion hashes before exposing rows. Machine-specific roots, private member catalogs, and credentials are not package defaults.
 
-Each second-ending row summarizes `[t−1s,t)`; exact-endpoint events enter the following row. The eighteen features retain their [equations and support rules](reference/v1/feature-contract.md). The query receives every endpoint, including economic failures and unavailable measurements; removing those rows before state processing would corrupt confirmation and exits.
+## Measurement and query semantics
 
-Calculation integrity and numerical reconstruction are distinct checks. Integrity binds byte lengths, SHA-256, schemas, row counts and completion metadata. Reconstruction derives the feature values from stored one-second support and compares values, native nulls and masks. Neither establishes predictive power or executable expectancy.
+Each row ending at `t` summarizes `[t-1s,t)`; events exactly at `t` enter the following row. Quote and trade continuity are independent. Missing or semantically unknown observations remain unavailable rather than becoming zero activity. Halts, source gaps, startup history, coverage thresholds, and current-value validity are explicit in the base, feature, and support companions.
 
-The compact calculator and independent reducers descend from research source based on commit `997b28063d9fa01fcff4e978b7acb013ca18255a`; that source tree was not necessarily clean, so the commit alone is not complete provenance. The installed package contains the numerical engines and reference reducers required by regression tests. Historical module names remain where they identify an algorithm or validation lineage; the supported entry points are the domain APIs and CLI. Packaged semantic metadata preserves historical definition digests, while current source files, required resources and runtime dependencies receive new implementation identities. Existing report images and manifests retain their historical attribution and are never relabeled as output from the installed package.
+The database exposes 27 queryable measurements with their individual validity masks. Projecting an unrelated display field does not change predicate eligibility. Scoped DuckDB sessions require explicit date bounds and verify only the selected members. Large results stream to immutable Parquet exports instead of being materialized as unbounded data frames.
 
-`stage.json` records the stage schema, explicit inputs, effective parameters, all declared output identities, validation evidence and a transitive installed-code/runtime identity, including the installed runtime dependency closure. Large membership and observation tables remain separate on disk. Domain manifests enforce additional completeness and schema checks. A changed material dependency requires a new run identity, even if numerical results are unchanged.
+## Bounded execution
 
-## Resource bounds
+Raw replay is linear in input events plus emitted seconds. Endpoint/EW calculation is linear in base rows and configured views, with fixed estimator and age-window state. Readers process one member at a time in bounded Arrow batches. Joint histograms retain fixed bin arrays; exact ECDFs use bounded DuckDB memory and disk-backed sorting. Corpus builds are controlled by immutable plans and explicit worker, memory, time, scratch, and disk-reserve limits.
 
-Let U be reference/minute records, E trade-plus-quote events, N output seconds, F the fixed feature count, H≤300 the rolling horizon, K query conditions and C release members.
-
-| Stage | Time / disk growth | Resident state |
-|---|---|---|
-| Acquisition/screen | O(U) in order; external ordering O(U log U) | Capped response pages/bytes, a batch and indexed on-disk membership |
-| Event normalization/storage | O(E + bytes), sorting O(E log E) | Bounded sort buffers/spill, projected batches and transfer blocks |
-| Feature calculation | O(E + N·F + N·H), O(N) output | Input/output batches, fixed rolling histories and Arrow/compression buffers |
-| Reconstruction/query | O(N log H) / O(N·K) | Fixed histories/state, projected batches and bounded result writers |
-| Release reconciliation | O(C log C), O(C) disk | Indexed membership controls |
-| Report aggregation | Histograms O(N·F); exact ECDF ordering O(F·N log N) | Fixed histograms, capped database sort/spill and bounded fetches |
-| Rendering | Bounded display points/bins | One figure canvas and reduced display representation at a time |
-
-Projected reads default to 4,096 rows and never exceed 25,000; the calculator's output cap remains 12,288 rows. Data work runs sequentially on the 8 GiB development machine. The monitoring script samples worker and descendant RSS every 50 ms and terminates its owned tree at 768 MiB for ordinary synthetic verification. Production work targets ≤2 GiB RSS and must stop below 3 GiB, with headroom for sampling delay.
-
-Before full external-data acceptance, run the exact production path on a representative session-start prefix, measure rows/time/RSS/transfer/spill, project the full run and obtain confirmation. A mid-session slice without prior state does not reproduce mature rolling history. Passing unit tests supplies no full-data resource acceptance.
-
-Report extraction additionally caps member metadata at 10,000 members and each member writer at 1,024 row groups. Separate member writers prevent Arrow footer metadata from growing with corpus rows; the ordinary 4,096-row batch needs at most 15 groups for a full session.
+Integrity, independent numerical reconstruction, and empirical evidence are different claims. Hash/schema/grid verification proves that the intended artifacts were consumed. Independent reconstruction checks calculation behavior. Neither establishes predictive power, execution quality, or trading expectancy.

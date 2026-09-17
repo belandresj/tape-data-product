@@ -14,7 +14,7 @@ The base builder consumes only locally present canonical Parquet files described
 
 The feature builder reads only a completed base and its context companion. On a fresh build it verifies the base hashes and metadata once, freezes all companion identities, and performs base semantic/key validation in the same streaming scan used for calculation. Generated feature/support batches are validated before writing; each finished file is hashed once and checked for schema, count, and subsequent mutation before atomic publication. The public standalone verifier remains a separate strict full read for completed-member reuse and explicit audits. The builder emits `features.parquet`, `support.parquet`, and a manifest bound to the base-manifest hash. Default outputs are the 30s/120s half-life EW views and 60s/300s exact-age p90 views. Alternative feature settings can reuse a compatible base; changing the raw trade reporting-age policy cannot.
 
-Completion means integrity and schema verification passed. Independent reconstruction is a separate validation claim and is recorded separately; the CLI does not relabel integrity checking as reconstruction. Existing `features build` and `features verify` commands retain the legacy compact-product meaning.
+Completion means integrity and schema verification passed. Independent reconstruction is a separate validation claim and is recorded separately; the CLI does not relabel integrity checking as reconstruction. The V2 path uses `features build-from-base` and `features verify-from-base`.
 
 ## Admission boundary
 
