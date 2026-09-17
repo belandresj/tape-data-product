@@ -1,0 +1,18 @@
+{
+  "completed_symbol_days": 5208,
+  "daily_counts_sum": 5208,
+  "first_date": "2026-03-09",
+  "last_date": "2026-08-31",
+  "maximum_daily_count": 76,
+  "mean_daily_count": 42.68852459016394,
+  "membership_unique": true,
+  "minimum_daily_count": 19,
+  "represented_symbol_hours": 83328.0,
+  "represented_trading_dates": 122,
+  "schema": "daily_completed_members_v1",
+  "session_hours_per_member": 16.0,
+  "source_inventory": {
+    "name": "inventory.json",
+    "sha256": "766564b167a7a8b0987b7b3ceae5a1efdad5fe4ee029912ea28b43d92c6bb3d7"
+  }
+}

@@ -1,59 +1,81 @@
 # Dataset build and reproduction
 
-This repository contains the compact feature-calculation core and a runnable synthetic example. It does **not yet contain a complete workflow to rebuild the March 9–August 31, 2026 dataset and all report figures from vendor inputs**. The published report summarizes completed research results imported from the original analysis; that is different from having reproduced them in this checkout.
-
-## Build stages and current coverage
-
-| Stage | Required inputs and output | What is present here |
-|---|---|---|
-| 1. Reference universe and screening | Daily eligible common stocks/ADRs and minute bars → selected symbol-date pairs and first qualifying two-minute endpoint | Screen described in the root report. The daily universe acquisition and minute-screen runners are not included. |
-| 2. Trade/quote acquisition | Selected pairs → complete normalized trade/quote Parquet pairs, coverage and identity records | Storage/identity helpers are included. The vendor tick-acquisition and full normalization workflow is not included. |
-| 3. Build inputs | Canonical pairs, screening/discovery records, halt/continuity context → accepted member inventory | The inventory bridge reads existing selection databases. It does not create the original screening inventory. Halt-related helpers are present, but a documented fresh-input preparation workflow is missing. |
-| 4. Feature calculation | Accepted member inputs → `features.parquet`, `support.parquet`, `manifest.json` | Implemented direct calculator, compact writer, supervised runner, integrity verification, and explicit numerical reconstruction are included. |
-| 5. Release assembly | Completed publication records and accepted calculation identities → immutable release membership | Capture/freeze helpers are included. Historical private controls and accepted-calculation lists must be supplied separately. |
-| 6. Report analysis | Accepted release → activity-filtered distributions, population counts, illustrative comparisons, and figures | Published aggregate counts, figures, and their checksums are included. The report aggregation/rendering and example-figure generation scripts are not included. |
-
-The source folders therefore contain important working components, but the missing acquisition and report stages cannot be replaced by changing file names or adding a wrapper command.
-
-## What can be run today without private data
-
-Follow the [developer guide](developer-guide.md) to install dependencies, then run the [synthetic example](../examples/synthetic_demo.py) with a fresh output directory:
-
-```sh
-.venv/bin/python -B examples/synthetic_demo.py --output output/build-example
-```
-
-It generates 721 invented quotes and 8,640 invented trades over 720 seconds, calculates the compact features, verifies their structure, independently reconstructs their numerical values, and exercises the existing query reader/state machine. It is a bounded demonstration of the calculation path, not a reconstruction of the acquisition screen or historical report. For monitored execution and recorded resource evidence, see [verification](verification/README.md).
-
-## Feature calculation from prepared real inputs
-
-The included API path is:
+The supported product is the endpoint/EW pipeline used by the V2 report:
 
 ```text
-normalized quotes.parquet + trades.parquet
-  + symbol/date + verified discovery + explicit halt/continuity context
-  → direct_frozen_product.product_pairs
-  → compact_product.write_partition
-  → features.parquet + support.parquet + manifest.json
-  → verify_complete (integrity) / audit_complete (numerical reconstruction)
+canonical T/Q -> one-second base -> endpoint/EW features -> verified reference -> query/report
 ```
 
-The [direct runner](../src/04_research/run_direct_frozen_product.py) exposes `freeze`, `run`, `report`, `reconcile`, and `audit` operations. `freeze` consumes prepared `selection.sqlite` files; it does not screen minute bars. `run` requires an accepted member inventory and run configuration. Its `report` operation summarizes execution receipts; it does not produce the distribution figures in the root README. Use `--help` and the [inventory bridge](../src/04_research/compact_product_inventory.py) to inspect the actual interface; no complete owner-ready input recipe is currently bundled.
+Use Python 3.13 and install the project as a wheel. The exact Linux dependency closure used by the project is pinned in `config/vps-python313-linux.lock`; `pyproject.toml` defines the supported runtime ranges. Run `tape-product --help` and the relevant subcommand’s `--help` for complete arguments.
 
-Historical feature retrieval is documented separately in [data access](data-access.md). It begins with already calculated features and is not a substitute for rebuilding them from trades and quotes. The existing cohort planner is restricted to the recorded historical release.
+## 1. Acquire or provide canonical inputs
 
-## Work required for complete reproduction
+The acquisition commands can build reference membership, minute-bar screening results, and canonical trade/quote pairs from explicit provider configuration. Existing canonical pairs may also be supplied directly when their immutable identities and source evidence are available.
 
-1. Bring in the exact maintained reference-universe, minute-screen, tick-acquisition, and normalization paths with their dependencies and smallest meaningful fixtures. Preserve the acquisition criteria and discovery timing.
-2. Specify the public input/configuration schemas for canonical pairs, coverage, discovery, halts, and accepted build inventories. Supply synthetic examples; keep credentials and private catalogs outside Git.
-3. Provide one supported build entry point that prepares those inputs and invokes the existing bounded calculator. Declare which steps require vendor or R2 access and which artifacts each step produces.
-4. Bring in the report aggregation/rendering paths and the rules used to select and render the illustrative examples. Bind report outputs to a complete accepted release and their analysis parameters.
-5. Validate each stage with bounded fixtures and representative production-path measurements before any complete external-data run. A new implementation may change provenance identities even when numerical definitions are preserved; historical plans must not be resumed under new code.
+```text
+tape-product acquire ...
+tape-product screen ...
+tape-product storage inventory ...
+tape-product storage verify ...
+```
 
-This is the next reproducibility task, not a claim that these stages are already integrated. A sensible acceptance sequence is a bounded synthetic workflow, a measured representative source prefix, a separately confirmed full symbol-day, and only then a broader dataset rebuild.
+Acquisition and R2 transfer are optional and separate from calculation. See [acquisition and canonical storage](acquisition.md).
 
-## Resource constraints
+## 2. Admit and build one-second base measurements
 
-The existing calculator’s documented time bound is O(T + Q + N·F + N·H), with T/Q source events, N output seconds, F features, and H≤300. Resident state is bounded by projected input/output batches and rolling histories, plus Arrow/compression buffers; independent reconstruction costs O(N log H). Details are in the [compact layout](compact-layout.md).
+Admission verifies terminal coverage evidence, quantity representation, quote-size units, halt/continuity context, and immutable source identities. A blocked admission is not converted into zero activity.
 
-Any integration specification must also bound acquisition, inventory, aggregation, rendering, and intermediate storage; those absent stages have not been resource-accepted here. Use projected input batches ≤25,000 rows (default 4,096), single-process work where practical, live process-tree RSS observation, a normal target ≤2 GiB, and a stop before 3 GiB. Report measured rows, elapsed time, peak RSS, and projected full-run resources, then obtain explicit confirmation before a full external-data acceptance run. Neither the historical report nor passing synthetic tests waives that checkpoint.
+```text
+tape-product base admit ...
+tape-product base build ...
+tape-product base verify ...
+```
+
+Each completed member contains `base.parquet`, `context.json`, and `manifest.json`. Replay is streaming and uses SIP-time ordering; it does not require a full trade/quote join.
+
+## 3. Build endpoint/EW features from base
+
+```text
+tape-product features build-from-base ...
+tape-product features verify-from-base ...
+```
+
+The feature builder consumes only the completed base partition and context. It writes `features.parquet`, `support.parquet`, and a manifest bound to the base manifest. Default views use 30s/120s EW half-lives and 60s/300s exact-age p90 windows. Compatible alternative feature settings can reuse base without replaying T/Q.
+
+For multiple members, `tape-product calculate plan` creates an immutable, hash-addressed plan; `calculate run` executes the accepted plan with explicit worker and resource limits. Completed members may be verified and reused. Interrupted members are rebuilt from session start.
+
+## 4. Construct and query a verified reference
+
+```text
+tape-product endpoint-data full ...
+tape-product endpoint-data verify ...
+tape-product endpoint-data fields ...
+tape-product endpoint-data inspect ...
+tape-product endpoint-data query-fields ...
+tape-product endpoint-data sql ...
+```
+
+References separate immutable content identity from trusted local data roots. Readers validate membership, manifests, hashes, schemas, keys, grids, and companion bindings before returning rows. DuckDB access requires inclusive date bounds and can optionally narrow members. Complete results stream to immutable Parquet exports; terminal previews are capped.
+
+See [endpoint data access](endpoint-data.md) for Python and SQL examples.
+
+## 5. Reproduce report artifacts
+
+The report commands expose the retained endpoint/EW population reducers and the
+V2 ECDF, joint-distribution, and worked-example renderers:
+
+```text
+tape-product report population ...
+tape-product report activity-population ...
+tape-product report activity-ecdf-calculate ...
+tape-product report activity-ecdf-render ...
+tape-product report feature-ecdf-calculate ...
+tape-product report feature-ecdf-render ...
+tape-product report joint ...
+tape-product report joint-render ...
+tape-product report gpus-cast ...
+```
+
+Numerical reduction is separate from rendering so labels and layout can be revised without rescanning feature data. Publication artifacts live under `reports/report_v2/`; private member-level contributions and machine-specific receipts remain outside Git.
+
+The repository does not contain the private historical corpus, so a fresh clone can verify code and tracked report artifacts but cannot reproduce the empirical release without the inputs described in [historical data access](data-access.md).

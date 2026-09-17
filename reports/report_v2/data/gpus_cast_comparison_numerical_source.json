@@ -1,0 +1,193 @@
+{
+  "config_sha256": "655a7c0826b8fa86df8169a5cc570dfe394ad4db2497608b78af30afebadecae",
+  "examples": [
+    {
+      "base_identity": "2466e13482e9260500cde66beb0761590f4cf2cab36c47545b6da490962c1b73",
+      "contract_identity": "bf4d8c1211bf096d9b0ab3b2c0d62f3858ff1da738b42aa8c3ed4cba67020bd1",
+      "end": "09:52:15",
+      "endpoint": "09:52:15",
+      "endpoint_count": 300,
+      "endpoint_features": {
+        "dollar_rate_usd_per_second_hl120s": 35677.63185644789,
+        "dollar_rate_usd_per_second_hl30s": 33704.15301438882,
+        "midpoint_rms_5s_bps_hl120s": 64.45268361459179,
+        "midpoint_rms_5s_bps_hl30s": 69.02500269122186,
+        "midpoint_rms_5s_to_spread_hl120s": 3.2348346986871133,
+        "midpoint_rms_5s_to_spread_hl30s": 3.064134280598848,
+        "movement_participation_hl120s": 0.5933208062503441,
+        "movement_participation_hl30s": 0.667104263741152,
+        "quoted_spread_bps_hl120s": 19.924567904737295,
+        "quoted_spread_bps_hl30s": 22.526755151778712,
+        "trade_rate_per_second_hl120s": 43.41754073716791,
+        "trade_rate_per_second_hl30s": 41.449145416575625
+      },
+      "endpoint_mode": true,
+      "feature_identity": "0f4e0888c53600e66bb1c89ef868376942b526d3674ab0ee1938a188bb728333",
+      "halt_seconds": 0,
+      "lineage_status": "Accepted endpoint/EW release member",
+      "mean_trade_count_1s": 45.88666666666666,
+      "member": "2026-06-18/GPUS",
+      "reference_midpoint_usd": 0.5304500000000001,
+      "session_date": "2026-06-18",
+      "start": "09:47:16",
+      "summaries": {
+        "dollar_rate_usd_per_second_hl120s": {
+          "mean": 30231.13408792276,
+          "median": 27435.502118712677,
+          "valid_seconds": 300
+        },
+        "dollar_rate_usd_per_second_hl30s": {
+          "mean": 36309.000899948245,
+          "median": 36090.23680953156,
+          "valid_seconds": 300
+        },
+        "midpoint_rms_5s_bps_hl120s": {
+          "mean": 58.98506570880296,
+          "median": 59.66940623089744,
+          "valid_seconds": 300
+        },
+        "midpoint_rms_5s_bps_hl30s": {
+          "mean": 63.36225305775933,
+          "median": 65.14027048263625,
+          "valid_seconds": 300
+        },
+        "midpoint_rms_5s_to_spread_hl120s": {
+          "mean": 3.227756023556084,
+          "median": 3.2650735412919563,
+          "valid_seconds": 300
+        },
+        "midpoint_rms_5s_to_spread_hl30s": {
+          "mean": 3.178234953387662,
+          "median": 3.16542859390981,
+          "valid_seconds": 300
+        },
+        "movement_participation_hl120s": {
+          "mean": 0.5336699027299594,
+          "median": 0.5393747742409862,
+          "valid_seconds": 300
+        },
+        "movement_participation_hl30s": {
+          "mean": 0.5954428607773852,
+          "median": 0.6073702760790602,
+          "valid_seconds": 300
+        },
+        "quoted_spread_bps_hl120s": {
+          "mean": 18.276328674709177,
+          "median": 18.585469909775455,
+          "valid_seconds": 300
+        },
+        "quoted_spread_bps_hl30s": {
+          "mean": 20.08130656131732,
+          "median": 19.58196066321566,
+          "valid_seconds": 300
+        },
+        "trade_rate_per_second_hl120s": {
+          "mean": 37.22065011176156,
+          "median": 34.51279964495741,
+          "valid_seconds": 300
+        },
+        "trade_rate_per_second_hl30s": {
+          "mean": 43.48872301214925,
+          "median": 42.57815108330765,
+          "valid_seconds": 300
+        }
+      },
+      "symbol": "GPUS"
+    },
+    {
+      "base_identity": "05f6e03aeb6313916d0ddc1fca9f0e102b8de7a42822e3185683a842fda21043",
+      "contract_identity": "bf4d8c1211bf096d9b0ab3b2c0d62f3858ff1da738b42aa8c3ed4cba67020bd1",
+      "end": "10:01:52",
+      "endpoint": "10:01:52",
+      "endpoint_count": 300,
+      "endpoint_features": {
+        "dollar_rate_usd_per_second_hl120s": 37881.46549183594,
+        "dollar_rate_usd_per_second_hl30s": 36018.674474762054,
+        "midpoint_rms_5s_bps_hl120s": 67.79361256279383,
+        "midpoint_rms_5s_bps_hl30s": 63.88763799989421,
+        "midpoint_rms_5s_to_spread_hl120s": 0.9122811364048549,
+        "midpoint_rms_5s_to_spread_hl30s": 0.9281290831057324,
+        "movement_participation_hl120s": 0.6083182139484465,
+        "movement_participation_hl30s": 0.6411320583107679,
+        "quoted_spread_bps_hl120s": 74.31219374978743,
+        "quoted_spread_bps_hl30s": 68.83486269615811,
+        "trade_rate_per_second_hl120s": 40.683022237470325,
+        "trade_rate_per_second_hl30s": 39.36228801798326
+      },
+      "endpoint_mode": true,
+      "feature_identity": "c19af1763356397c0c595670741451c115b7e04f6ae5eb9e4baa27c3cbd3450e",
+      "halt_seconds": 0,
+      "lineage_status": "Isolated descriptor-repair replay; not in accepted 5,208-member release",
+      "mean_trade_count_1s": 36.03,
+      "member": "2026-06-18/CAST",
+      "reference_midpoint_usd": 10.09,
+      "session_date": "2026-06-18",
+      "start": "09:56:53",
+      "summaries": {
+        "dollar_rate_usd_per_second_hl120s": {
+          "mean": 37382.5304772097,
+          "median": 37759.65553622487,
+          "valid_seconds": 179
+        },
+        "dollar_rate_usd_per_second_hl30s": {
+          "mean": 34746.68576356196,
+          "median": 33413.19703266658,
+          "valid_seconds": 300
+        },
+        "midpoint_rms_5s_bps_hl120s": {
+          "mean": 70.61901953078089,
+          "median": 70.78471172943576,
+          "valid_seconds": 179
+        },
+        "midpoint_rms_5s_bps_hl30s": {
+          "mean": 64.16018577143835,
+          "median": 63.893343035799546,
+          "valid_seconds": 300
+        },
+        "midpoint_rms_5s_to_spread_hl120s": {
+          "mean": 0.9230954359931124,
+          "median": 0.91310017628603,
+          "valid_seconds": 179
+        },
+        "midpoint_rms_5s_to_spread_hl30s": {
+          "mean": 0.8424642272000883,
+          "median": 0.8542102990027082,
+          "valid_seconds": 300
+        },
+        "movement_participation_hl120s": {
+          "mean": 0.591388842777047,
+          "median": 0.5907806941595326,
+          "valid_seconds": 179
+        },
+        "movement_participation_hl30s": {
+          "mean": 0.6003919571599831,
+          "median": 0.6030823759220074,
+          "valid_seconds": 300
+        },
+        "quoted_spread_bps_hl120s": {
+          "mean": 76.56980525392711,
+          "median": 76.23943186821039,
+          "valid_seconds": 179
+        },
+        "quoted_spread_bps_hl30s": {
+          "mean": 76.46634024878023,
+          "median": 74.00536901475088,
+          "valid_seconds": 300
+        },
+        "trade_rate_per_second_hl120s": {
+          "mean": 40.80152867160563,
+          "median": 41.17387990089336,
+          "valid_seconds": 179
+        },
+        "trade_rate_per_second_hl30s": {
+          "mean": 37.204762303252295,
+          "median": 36.45655347118736,
+          "valid_seconds": 300
+        }
+      },
+      "symbol": "CAST"
+    }
+  ],
+  "pair_identity": "9fc9ce0b8557775ec09430cfd7b34a6190224ac4a20460b87288f0771dc3260b",
+  "schema": "endpoint_tape_pair_summary_v2"
+}

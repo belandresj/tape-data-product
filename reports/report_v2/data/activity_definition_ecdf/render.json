@@ -1,0 +1,20 @@
+{
+  "numerical_sha256": "9fd90f0ce8ae0f56dafd61f98f357c6cf12bd244184bc3d00fad66d39d6f676f",
+  "outputs": {
+    "activity_definition_ecdf.png": {
+      "bytes": 536229,
+      "sha256": "5b9102339677db900d5d3fbe570023c3cac49b1f4861c1dd0b2c2aa1350bcf24"
+    },
+    "activity_definition_ecdf.svg": {
+      "bytes": 171216,
+      "sha256": "65e6092b84c82d7a38bac6f3ee213b93723710ea1083174fc18c6403e69ad87b"
+    }
+  },
+  "schema": "activity_definition_ecdf_render_v1",
+  "shared_x_domain_by_column": true,
+  "thresholds": {
+    "trade_age_p90_maximum_inclusive": 2.0,
+    "trade_rate_minimum_inclusive": 1.0
+  },
+  "x_transform": "log1p"
+}

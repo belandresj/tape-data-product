@@ -1,0 +1,201 @@
+{
+  "elapsed_seconds": 1294.9910168110218,
+  "fields": [
+    {
+      "elapsed_seconds": 335.99709694000194,
+      "field": "trade_rate_per_second_hl30s",
+      "kind": "trade_rate",
+      "log_bin_width": 0.0025,
+      "qualifier": ">=",
+      "sessions": {
+        "after_hours": {
+          "maximum": 451.6989870802983,
+          "minimum": 5.060572494505218e-143,
+          "threshold_pass": 9209693,
+          "threshold_pass_share_valid": 0.12280376610769755,
+          "valid": 74995200,
+          "zeros": 0
+        },
+        "pooled": {
+          "maximum": 2987.964445326721,
+          "minimum": 0.0,
+          "threshold_pass": 81847314,
+          "threshold_pass_share_valid": 0.2731216018519994,
+          "valid": 299673528,
+          "zeros": 5844307
+        },
+        "premarket": {
+          "maximum": 531.4041683874403,
+          "minimum": 0.0,
+          "threshold_pass": 22050736,
+          "threshold_pass_share_valid": 0.21447810591086988,
+          "valid": 102811128,
+          "zeros": 5695695
+        },
+        "rth": {
+          "maximum": 2987.964445326721,
+          "minimum": 0.0,
+          "threshold_pass": 50586885,
+          "threshold_pass_share_valid": 0.41509844322344325,
+          "valid": 121867200,
+          "zeros": 148612
+        }
+      },
+      "threshold": 1.0,
+      "unit": "trades/s",
+      "view": "fast"
+    },
+    {
+      "elapsed_seconds": 314.4006829299906,
+      "field": "trade_age_p90_seconds_window60s",
+      "kind": "trade_age",
+      "log_bin_width": 0.0025,
+      "qualifier": "<=",
+      "sessions": {
+        "after_hours": {
+          "maximum": 14053.360098610001,
+          "minimum": 0.013435652900000001,
+          "threshold_pass": 4874093,
+          "threshold_pass_share_valid": 0.06499206615890084,
+          "valid": 74995200,
+          "zeros": 0
+        },
+        "pooled": {
+          "maximum": 19789.740066639,
+          "minimum": 0.0012643806000000013,
+          "threshold_pass": 42837305,
+          "threshold_pass_share_valid": 0.14582718930134633,
+          "valid": 293753896,
+          "zeros": 0
+        },
+        "premarket": {
+          "maximum": 19789.740066639,
+          "minimum": 0.010313106500000002,
+          "threshold_pass": 12658411,
+          "threshold_pass_share_valid": 0.13044230241922633,
+          "valid": 97042223,
+          "zeros": 0
+        },
+        "rth": {
+          "maximum": 19789.740066639,
+          "minimum": 0.0012643806000000013,
+          "threshold_pass": 25304801,
+          "threshold_pass_share_valid": 0.20789955850922495,
+          "valid": 121716473,
+          "zeros": 0
+        }
+      },
+      "threshold": 2.0,
+      "unit": "seconds",
+      "view": "fast"
+    },
+    {
+      "elapsed_seconds": 327.90525073898607,
+      "field": "trade_rate_per_second_hl120s",
+      "kind": "trade_rate",
+      "log_bin_width": 0.0025,
+      "qualifier": ">=",
+      "sessions": {
+        "after_hours": {
+          "maximum": 376.67051172133085,
+          "minimum": 5.4900320472813405e-37,
+          "threshold_pass": 10007152,
+          "threshold_pass_share_valid": 0.13343723331626559,
+          "valid": 74995200,
+          "zeros": 0
+        },
+        "pooled": {
+          "maximum": 2176.2623273212434,
+          "minimum": 0.0,
+          "threshold_pass": 85087241,
+          "threshold_pass_share_valid": 0.28512235198228686,
+          "valid": 298423608,
+          "zeros": 5540441
+        },
+        "premarket": {
+          "maximum": 293.6193267694033,
+          "minimum": 0.0,
+          "threshold_pass": 22578152,
+          "threshold_pass_share_valid": 0.22231078622066017,
+          "valid": 101561208,
+          "zeros": 5391829
+        },
+        "rth": {
+          "maximum": 2176.2623273212434,
+          "minimum": 0.0,
+          "threshold_pass": 52501937,
+          "threshold_pass_share_valid": 0.43081269611511547,
+          "valid": 121867200,
+          "zeros": 148612
+        }
+      },
+      "threshold": 1.0,
+      "unit": "trades/s",
+      "view": "slow"
+    },
+    {
+      "elapsed_seconds": 314.0690112110169,
+      "field": "trade_age_p90_seconds_window300s",
+      "kind": "trade_age",
+      "log_bin_width": 0.0025,
+      "qualifier": "<=",
+      "sessions": {
+        "after_hours": {
+          "maximum": 14029.360098610001,
+          "minimum": 0.014414330500000006,
+          "threshold_pass": 4447119,
+          "threshold_pass_share_valid": 0.059298715117767534,
+          "valid": 74995200,
+          "zeros": 0
+        },
+        "pooled": {
+          "maximum": 19765.740066639,
+          "minimum": 0.001844602,
+          "threshold_pass": 39100549,
+          "threshold_pass_share_valid": 0.13364017301449602,
+          "valid": 292580802,
+          "zeros": 0
+        },
+        "premarket": {
+          "maximum": 19765.740066639,
+          "minimum": 0.018458033100000003,
+          "threshold_pass": 11494403,
+          "threshold_pass_share_valid": 0.11988511416179672,
+          "valid": 95878484,
+          "zeros": 0
+        },
+        "rth": {
+          "maximum": 19765.740066639,
+          "minimum": 0.001844602,
+          "threshold_pass": 23159027,
+          "threshold_pass_share_valid": 0.19028490182472318,
+          "valid": 121707118,
+          "zeros": 0
+        }
+      },
+      "threshold": 2.0,
+      "unit": "seconds",
+      "view": "slow"
+    }
+  ],
+  "inventory": {
+    "name": "inventory.json",
+    "sha256": "766564b167a7a8b0987b7b3ceae5a1efdad5fe4ee029912ea28b43d92c6bb3d7"
+  },
+  "log_bin_width": 0.0025,
+  "members": 5208,
+  "method": "log_binned",
+  "numerical_sha256": "9fd90f0ce8ae0f56dafd61f98f357c6cf12bd244184bc3d00fad66d39d6f676f",
+  "population": "ungated represented full-session endpoints; field-specific validity",
+  "release": {
+    "base_implementation_identity": "a6cbbdba294b58629a0d72f71e9e495af731f19566620eed51f90fdf721540e5",
+    "contract_identity": "bf4d8c1211bf096d9b0ab3b2c0d62f3858ff1da738b42aa8c3ed4cba67020bd1",
+    "feature_implementation_identity": "d82235bed5ddd1bd800f11876bd3dc80760283de5f25740c30a0924f2c605afb",
+    "source_revision": "ea2e16128225a91ceb6003fcb3f6ef80985ba8e0",
+    "wheel_sha256": "a506c2ad2fd7aabeb6d214a876f6741f303d8bc713fb34a4b6dbbc83d85cafe9"
+  },
+  "represented_rows": 299980800,
+  "schema": "activity_definition_ecdf_v1",
+  "session_assignment": "interval left edge in America/New_York",
+  "weighting": "one valid stock-second per observation"
+}

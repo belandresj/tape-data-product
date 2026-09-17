@@ -1,0 +1,15 @@
+include requirements-verified.txt .env.example
+recursive-include config *.json
+recursive-include config *.lock
+recursive-include docs *.md *.json
+recursive-include reports *.md *.json *.csv *.png *.svg
+recursive-include scripts *.py
+recursive-include tests *.py
+prune build
+prune output
+prune private
+prune data
+prune local_docs
+prune planning
+exclude AGENTS.md
+global-exclude __pycache__ *.py[cod] .DS_Store

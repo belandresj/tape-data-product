@@ -10,7 +10,7 @@ build/
 dist/
 .DS_Store
 private/
-data/
+/data/
 output/
 *.parquet
 *.sqlite*
@@ -18,3 +18,7 @@ output/
 *.log
 # Local extraction receipts remain private; maintained evidence lives under docs/.
 handoff/
+
+# Private operational evidence and disposable working notes.
+/local_docs/
+/AGENTS.md

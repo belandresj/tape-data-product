@@ -1,18 +1,16 @@
 # Documentation
 
-Start with the [project report](../README.md) for dataset coverage, feature definitions, and descriptive findings.
+The root [research report](../README.md) is the client-facing description of the completed endpoint/EW data product, empirical population, figures, query example, and limitations.
 
 | Document | Purpose |
 |---|---|
-| [Dataset build and reproduction](dataset-build.md) | What can be rebuilt now, the actual calculation path, and missing acquisition/report stages |
-| [Developer guide](developer-guide.md) | Installation, synthetic example, and development commands |
-| [Feature contract](tape_data_product/README.md) | Exact 60s/300s definitions, timing, and eligibility rules |
-| [Compact layout](compact-layout.md) | Stored fields, masks, validation, and complexity |
-| [Architecture](architecture.md) | Source-code responsibilities and why older dependencies remain |
-| [Data access](data-access.md) | Private inputs and the existing historical feature-retrieval workflow |
-| [Query contract](query-contract.md) | Existing exploratory cohort mechanics; no claim of validated retrieval usefulness |
-| [Technical supplement](../reports/technical-supplement.md) | Report accounting and figure-source verification |
-| [Verification](verification/README.md) | Dated synthetic evidence and repeatable bounded checks |
-| [Provenance](provenance/README.md) | Initial source extraction and later report-asset identities |
+| [Dataset build and reproduction](dataset-build.md) | Installed raw-to-base-to-feature-to-query workflow |
+| [Acquisition and canonical storage](acquisition.md) | Reference screening, canonical T/Q pairs, local verification, and explicit R2 operations |
+| [Feature pipeline](feature-pipeline.md) | One-second base replay and endpoint/EW feature builders |
+| [Endpoint/EW contract](contracts/endpoint-ew-v1.md) | Schemas, units, masks, clocks, coverage, resets, and numerical rules |
+| [Endpoint data access](endpoint-data.md) | Verified references, projected Arrow reads, DuckDB queries, and CLI access |
+| [Architecture](architecture.md) | Package boundaries, identities, and bounded execution model |
+| [Historical data access](data-access.md) | Inputs required to reproduce or extend the reported release |
+| [Development](developer-guide.md) | Supported environment and focused verification workflow |
 
-The `rolling_tape/` and `tape_characterization_v3/` documents are hash-bound supporting specifications used by retained code. They are not the current product contract; see the architecture document before moving or editing them.
+Private catalogs, credentials, detailed market-data rows, VM paths, operational receipts, and temporary research notes are intentionally excluded from the public repository.
