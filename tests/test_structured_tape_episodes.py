@@ -17,13 +17,15 @@ def _module():
     return module
 
 
-def _rows(symbol, matching_indices, *, unavailable_indices=()):
+def _rows(
+    symbol, matching_indices, *, session_date="2026-06-01", unavailable_indices=()
+):
     start = 1_780_000_000_000_000_000
     matching_indices = set(matching_indices)
     unavailable_indices = set(unavailable_indices)
     return [
         {
-            "session_date": "2026-06-01",
+            "session_date": session_date,
             "symbol": symbol,
             "session": "rth",
             "interval_end_ns": start + (index + 1) * 1_000_000_000,
@@ -87,6 +89,32 @@ def test_off_delay_boundary_merges_29_misses_and_splits_30(tmp_path):
         for key, row in episodes.items()
         if key[0] == "SPLIT"
     )
+
+
+def test_combines_requested_dates_and_counts_symbol_days(tmp_path):
+    rows = []
+    rows.extend(_rows("SAME", range(600), session_date="2026-06-01"))
+    rows.extend(_rows("SAME", range(600), session_date="2026-06-02"))
+    rows.extend(_rows("OTHER", range(600), session_date="2026-06-03"))
+    input_path = tmp_path / "projected.parquet"
+    output_path = tmp_path / "episodes.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), input_path)
+
+    result = _module().run(
+        input_path,
+        output_path,
+        session_dates=["2026-06-01", "2026-06-02"],
+        minimum_occupancy="0.80",
+    )
+    output = pq.read_table(output_path).to_pylist()
+
+    assert result["session_dates"] == ["2026-06-01", "2026-06-02"]
+    assert result["retained_episodes"] == 2
+    assert result["retained_symbol_days"] == 2
+    assert {row["session_date"] for row in output} == {
+        "2026-06-01",
+        "2026-06-02",
+    }
 
 
 def test_rejects_invalid_configuration_and_existing_output(tmp_path):

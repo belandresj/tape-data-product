@@ -12,7 +12,11 @@ Example:
 
     python scripts/research/select_structured_tape_episodes.py \
       --input projected.parquet --date 2026-06-01 \
-      --output structured-episodes-2026-06-01.parquet
+      --date 2026-06-02 --date 2026-06-03 \
+      --output structured-episodes.parquet
+
+Repeat ``--date`` to process several dates in one output.  Dates not named on
+the command line are never scanned into the result.
 """
 from __future__ import annotations
 
@@ -39,7 +43,7 @@ REQUIRED_COLUMNS = {
 def _arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--date", required=True)
+    parser.add_argument("--date", required=True, action="append", dest="dates")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--off-delay-seconds", type=int, default=30)
     parser.add_argument("--minimum-episode-seconds", type=int, default=600)
@@ -72,9 +76,12 @@ def _validate_input(path):
     return parquet.metadata.num_rows
 
 
-def _episode_sql(off_delay_seconds, minimum_episode_seconds, occupancy):
+def _episode_sql(
+    off_delay_seconds, minimum_episode_seconds, occupancy, *, date_count=1
+):
     off_delay_ns = off_delay_seconds * 1_000_000_000
     occupancy_sql = format(occupancy, "f")
+    date_parameters = ", ".join("?" for _ in range(date_count))
     return f"""
 WITH scoped AS (
     SELECT
@@ -90,7 +97,7 @@ WITH scoped AS (
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS availability_segment
     FROM read_parquet(?, hive_partitioning = false)
-    WHERE session_date = ?
+    WHERE session_date IN ({date_parameters})
 ), matching_rows AS (
     SELECT
         *,
@@ -191,12 +198,20 @@ def run(
     input_path,
     output_path,
     *,
-    session_date,
+    session_date=None,
+    session_dates=None,
     off_delay_seconds=30,
     minimum_episode_seconds=600,
     minimum_occupancy="0.50",
     memory_limit="512MiB",
 ):
+    if session_dates is None:
+        session_dates = [session_date] if session_date is not None else []
+    elif session_date is not None:
+        raise ValueError("provide session_date or session_dates, not both")
+    session_dates = tuple(dict.fromkeys(session_dates))
+    if not session_dates or any(not value for value in session_dates):
+        raise ValueError("at least one session date is required")
     input_path = Path(input_path).resolve()
     output_path = Path(output_path).resolve()
     input_rows = _validate_input(input_path)
@@ -218,16 +233,20 @@ def run(
     try:
         invalid = connection.execute(
             "SELECT count(*) FROM read_parquet(?, hive_partitioning=false) "
-            "WHERE session_date = ? AND matching AND NOT eligible",
-            [str(input_path), session_date],
+            f"WHERE session_date IN ({', '.join('?' for _ in session_dates)}) "
+            "AND matching AND NOT eligible",
+            [str(input_path), *session_dates],
         ).fetchone()[0]
         if invalid:
             raise ValueError("matching observations must also be eligible")
         table = connection.execute(
             _episode_sql(
-                off_delay_seconds, minimum_episode_seconds, occupancy
+                off_delay_seconds,
+                minimum_episode_seconds,
+                occupancy,
+                date_count=len(session_dates),
             ),
-            [str(input_path), session_date],
+            [str(input_path), *session_dates],
         ).to_arrow_table()
     finally:
         connection.close()
@@ -236,10 +255,17 @@ def run(
         "definition": "structured_tape_episode_v1",
         "input": str(input_path),
         "input_rows": input_rows,
-        "session_date": session_date,
+        "session_dates": list(session_dates),
         "output": str(output_path),
         "retained_episodes": table.num_rows,
-        "retained_symbol_days": len(set(table.column("symbol").to_pylist())),
+        "retained_symbol_days": len(
+            set(
+                zip(
+                    table.column("session_date").to_pylist(),
+                    table.column("symbol").to_pylist(),
+                )
+            )
+        ),
         "off_delay_seconds": off_delay_seconds,
         "minimum_episode_seconds": minimum_episode_seconds,
         "minimum_occupancy": str(occupancy),
@@ -254,7 +280,7 @@ def main(argv=None):
     run(
         args.input,
         args.output,
-        session_date=args.date,
+        session_dates=args.dates,
         off_delay_seconds=args.off_delay_seconds,
         minimum_episode_seconds=args.minimum_episode_seconds,
         minimum_occupancy=args.minimum_occupancy,
