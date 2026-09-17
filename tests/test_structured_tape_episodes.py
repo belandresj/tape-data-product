@@ -81,6 +81,12 @@ def test_off_delay_boundary_merges_29_misses_and_splits_30(tmp_path):
     episodes = {(row["symbol"], row["episode_id"]): row for row in table.to_pylist()}
     assert len([key for key in episodes if key[0] == "MERGE"]) == 1
     assert len([key for key in episodes if key[0] == "SPLIT"]) == 2
+    assert episodes[("MERGE", 1)]["maximum_nonmatching_gap_seconds"] == 29
+    assert all(
+        row["maximum_nonmatching_gap_seconds"] == 0
+        for key, row in episodes.items()
+        if key[0] == "SPLIT"
+    )
 
 
 def test_rejects_invalid_configuration_and_existing_output(tmp_path):

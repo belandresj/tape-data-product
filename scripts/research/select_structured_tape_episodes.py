@@ -108,7 +108,10 @@ WITH scoped AS (
               OR interval_end_ns - previous_match_ns > {off_delay_ns}
             THEN 1 ELSE 0
         END AS new_episode,
-        CASE WHEN previous_match_ns IS NULL THEN 0
+        CASE
+            WHEN previous_match_ns IS NULL
+              OR interval_end_ns - previous_match_ns > {off_delay_ns}
+            THEN 0
              ELSE CAST((interval_end_ns - previous_match_ns) / 1000000000 AS BIGINT) - 1
         END AS preceding_nonmatching_gap_seconds
     FROM matching_rows
