@@ -20,6 +20,33 @@ def _aggregate(args):
     )
 
 
+def _population(args):
+    from .endpoint_population import render_daily_completed_members
+
+    return render_daily_completed_members(
+        args.inventory,
+        args.output,
+        expected_members=args.expected_members,
+        session_hours=args.session_hours,
+        dpi=args.dpi,
+    )
+
+
+def _activity_population(args):
+    from .endpoint_population import render_daily_active_tape_hours
+
+    return render_daily_active_tape_hours(
+        args.member_gate_accounting,
+        args.config,
+        args.output,
+        half_life_seconds=args.half_life_seconds,
+        session=args.session,
+        expected_members=args.expected_members,
+        expected_represented_seconds=args.expected_represented_seconds,
+        dpi=args.dpi,
+    )
+
+
 def register_commands(subparsers):
     report = subparsers.add_parser(
         "report", help="Aggregate verified releases and render figures offline"
@@ -49,6 +76,31 @@ def register_commands(subparsers):
         "--synthetic", action="store_true", help="Label invented inputs and outputs"
     )
     aggregate.set_defaults(func=_aggregate)
+    population = commands.add_parser(
+        "population",
+        help="Render endpoint/EW daily completed-member population artifacts",
+    )
+    population.add_argument("--inventory", type=Path, required=True)
+    population.add_argument("--output", type=Path, required=True)
+    population.add_argument("--expected-members", type=int)
+    population.add_argument("--session-hours", type=float, default=16.0)
+    population.add_argument("--dpi", type=int, default=190)
+    population.set_defaults(func=_population)
+    activity_population = commands.add_parser(
+        "activity-population",
+        help="Render daily active-tape stock-hours from verified gate accounting",
+    )
+    activity_population.add_argument(
+        "--member-gate-accounting", type=Path, required=True
+    )
+    activity_population.add_argument("--config", type=Path, required=True)
+    activity_population.add_argument("--output", type=Path, required=True)
+    activity_population.add_argument("--half-life-seconds", type=int, default=30)
+    activity_population.add_argument("--session", default="pooled")
+    activity_population.add_argument("--expected-members", type=int)
+    activity_population.add_argument("--expected-represented-seconds", type=int)
+    activity_population.add_argument("--dpi", type=int, default=190)
+    activity_population.set_defaults(func=_activity_population)
     render = commands.add_parser(
         "render", help="Render saved numerical artifacts without network access"
     )
