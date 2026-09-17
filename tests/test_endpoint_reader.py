@@ -209,8 +209,12 @@ def _write_reference(root, partition):
         "synthetic": True,
         "release": {
             "contract_identity": contract_identity(),
-            "base_implementation_identity": "base-producer",
-            "feature_implementation_identity": "feature-producer",
+            "base_implementation_identity": partition["base_manifest"][
+                "implementation_identity"
+            ],
+            "feature_implementation_identity": partition["feature_manifest"][
+                "implementation_identity"
+            ],
         },
         "contract_config": DEFAULT_CONFIG.to_dict(),
         "schemas": {
