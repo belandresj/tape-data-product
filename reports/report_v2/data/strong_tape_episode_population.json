@@ -1,0 +1,93 @@
+{
+  "dates": [
+    "2026-06-01",
+    "2026-06-02",
+    "2026-06-03",
+    "2026-06-04",
+    "2026-06-05"
+  ],
+  "episode_rule": {
+    "minimum_duration_seconds": 600,
+    "minimum_occupancy": 0.8,
+    "off_delay_seconds": 30,
+    "session_boundaries_split": true,
+    "unavailable_observations_split": true
+  },
+  "population": {
+    "eligible_seconds": 15995023,
+    "represented_seconds": 16473600,
+    "represented_symbol_days": 286,
+    "represented_symbols": 201
+  },
+  "result": {
+    "daily": [
+      {
+        "date": "2026-06-01",
+        "episodes": 12,
+        "represented_symbol_days": 59,
+        "retained_share": 0.10169491525423728,
+        "retained_symbol_days": 6
+      },
+      {
+        "date": "2026-06-02",
+        "episodes": 17,
+        "represented_symbol_days": 59,
+        "retained_share": 0.1694915254237288,
+        "retained_symbol_days": 10
+      },
+      {
+        "date": "2026-06-03",
+        "episodes": 5,
+        "represented_symbol_days": 52,
+        "retained_share": 0.07692307692307693,
+        "retained_symbol_days": 4
+      },
+      {
+        "date": "2026-06-04",
+        "episodes": 9,
+        "represented_symbol_days": 57,
+        "retained_share": 0.14035087719298245,
+        "retained_symbol_days": 8
+      },
+      {
+        "date": "2026-06-05",
+        "episodes": 12,
+        "represented_symbol_days": 59,
+        "retained_share": 0.11864406779661017,
+        "retained_symbol_days": 7
+      }
+    ],
+    "episodes": 55,
+    "episodes_by_session": {
+      "after_hours": 3,
+      "premarket": 33,
+      "rth": 19
+    },
+    "longest_episode_per_symbol_day_seconds": {
+      "maximum": 3190,
+      "mean": 1277.5142857142857,
+      "median": 883,
+      "minimum": 602,
+      "p75": 1484,
+      "p90": 2418.2
+    },
+    "retained_share": 0.12237762237762238,
+    "retained_symbol_days": 35,
+    "retained_symbols": 31
+  },
+  "schema": "strong_tape_episode_population_v1",
+  "screen": {
+    "midpoint_rms_5s_bps_hl30s": "> 10",
+    "midpoint_rms_5s_to_spread_hl30s": "> 2",
+    "movement_participation_hl30s": ">= 0.4",
+    "quote_age_p90_seconds_window60s": "<= 2",
+    "quoted_spread_bps_hl30s": "< 100",
+    "trade_age_p90_seconds_window60s": "<= 2",
+    "trade_rate_per_second_hl30s": ">= 10"
+  },
+  "source": {
+    "episode_output_sha256": "8c335edbe16afda89d297cd79efbab630e67228bd3edfd6023ee87f092c4110e",
+    "projected_input_sha256": "d9f56a80ab82c29d515d741df975c40387542062b7329cdcf2f8e163927d3e81",
+    "reducer_source_revision": "44fb73b8872757e16b2533a52996ad8b17fa1733"
+  }
+}

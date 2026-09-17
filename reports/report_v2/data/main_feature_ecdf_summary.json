@@ -1,0 +1,1328 @@
+{
+  "binning": {
+    "linear_width": 0.001,
+    "log1p_width": 0.0025
+  },
+  "calculation_source_revision": "3072eff",
+  "families": {
+    "freshness": {
+      "elapsed_seconds": 150.3477100309974,
+      "metrics": {
+        "current_midpoint_age": {
+          "unit": "seconds",
+          "views": {
+            "fast": {
+              "field": "midpoint_change_age_seconds",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 14381.98021654,
+                  "median": 1.1436285987331596,
+                  "p90": 8.369877288937932,
+                  "p99": 47.06239199090584,
+                  "unavailable_within_gate": 61889,
+                  "valid": 4806991,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 14381.98021654,
+                  "median": 1.6845147892720704,
+                  "p90": 17.038349151533573,
+                  "p99": 137.03399563494864,
+                  "unavailable_within_gate": 187618,
+                  "valid": 42516503,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 937.429000798,
+                  "median": 1.3048140482870125,
+                  "p90": 11.304930060510415,
+                  "p99": 69.45681718843254,
+                  "unavailable_within_gate": 103031,
+                  "valid": 12549645,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 14372.98021654,
+                  "median": 2.0725259244570022,
+                  "p90": 23.0467535520645,
+                  "p99": 190.04328014594222,
+                  "unavailable_within_gate": 22698,
+                  "valid": 25159867,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "midpoint_change_age_seconds",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 961.788030264,
+                  "median": 1.186932768947246,
+                  "p90": 8.899655910288434,
+                  "p99": 50.67633811210705,
+                  "unavailable_within_gate": 50450,
+                  "valid": 4395312,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 3592.733945691,
+                  "median": 1.671125715903024,
+                  "p90": 17.08350144125775,
+                  "p99": 136.34554820960216,
+                  "unavailable_within_gate": 152793,
+                  "valid": 38921208,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 748.722895615,
+                  "median": 1.351374380574902,
+                  "p90": 11.935817315543076,
+                  "p99": 77.25713442308428,
+                  "unavailable_within_gate": 83125,
+                  "valid": 11411187,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 3592.733945691,
+                  "median": 1.9966649890869297,
+                  "p90": 22.453037091431025,
+                  "p99": 182.55236598524,
+                  "unavailable_within_gate": 19218,
+                  "valid": 23114709,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "current_quote_age": {
+          "unit": "seconds",
+          "views": {
+            "fast": {
+              "field": "quote_age_seconds",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 481.271656358,
+                  "median": 0.4769807938826426,
+                  "p90": 2.6056425737544533,
+                  "p99": 7.957579093309812,
+                  "unavailable_within_gate": 0,
+                  "valid": 4868880,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 2793.693677609,
+                  "median": 0.5411054752926913,
+                  "p90": 3.2101572561439604,
+                  "p99": 11.212988297643943,
+                  "unavailable_within_gate": 0,
+                  "valid": 42704121,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 306.980810136,
+                  "median": 0.422619655748629,
+                  "p90": 2.438378520705125,
+                  "p99": 7.393855918970288,
+                  "unavailable_within_gate": 0,
+                  "valid": 12652676,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 2793.693677609,
+                  "median": 0.6282405261455097,
+                  "p90": 3.758821245137854,
+                  "p99": 13.585093295880792,
+                  "unavailable_within_gate": 0,
+                  "valid": 25182565,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "quote_age_seconds",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 505.271656358,
+                  "median": 0.49182469764127035,
+                  "p90": 2.7621853549999105,
+                  "p99": 8.825686224017367,
+                  "unavailable_within_gate": 0,
+                  "valid": 4445762,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 918.863487636,
+                  "median": 0.5334191796683978,
+                  "p90": 3.1682654915031816,
+                  "p99": 10.822446851646363,
+                  "unavailable_within_gate": 0,
+                  "valid": 39074001,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 73.10075599,
+                  "median": 0.42618065428148005,
+                  "p90": 2.472934799336826,
+                  "p99": 7.5207128058487225,
+                  "unavailable_within_gate": 0,
+                  "valid": 11494312,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 918.863487636,
+                  "median": 0.6039991828515145,
+                  "p90": 3.618176822299781,
+                  "p99": 12.701427164503666,
+                  "unavailable_within_gate": 0,
+                  "valid": 23133927,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "current_trade_age": {
+          "unit": "seconds",
+          "views": {
+            "fast": {
+              "field": "trade_age_seconds",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 7.898711645,
+                  "median": 0.22140275816016985,
+                  "p90": 1.1276115233552981,
+                  "p99": 2.7999959464192696,
+                  "unavailable_within_gate": 0,
+                  "valid": 4868880,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 7.898813231,
+                  "median": 0.22446008512191484,
+                  "p90": 1.1222991377957265,
+                  "p99": 2.715450737941104,
+                  "unavailable_within_gate": 0,
+                  "valid": 42704121,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 7.87166001,
+                  "median": 0.18530485132036553,
+                  "p90": 1.0339912586467506,
+                  "p99": 2.614667957217448,
+                  "unavailable_within_gate": 0,
+                  "valid": 12652676,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 7.898813231,
+                  "median": 0.249195819650653,
+                  "p90": 1.1597662537849152,
+                  "p99": 2.7434213772608627,
+                  "unavailable_within_gate": 0,
+                  "valid": 25182565,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "trade_age_seconds",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 30.996873987,
+                  "median": 0.22446008512191484,
+                  "p90": 1.1978948150697017,
+                  "p99": 3.47049884127679,
+                  "unavailable_within_gate": 0,
+                  "valid": 4445762,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 30.996873987,
+                  "median": 0.22140275816016985,
+                  "p90": 1.1276115233552981,
+                  "p99": 2.9848513134888504,
+                  "unavailable_within_gate": 0,
+                  "valid": 39074001,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 24.118682722,
+                  "median": 0.18827182061498837,
+                  "p90": 1.0647310999664865,
+                  "p99": 2.915723051992722,
+                  "unavailable_within_gate": 0,
+                  "valid": 11494312,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 29.340633754,
+                  "median": 0.23676611356528468,
+                  "p90": 1.1436285987331596,
+                  "p99": 2.9353506954704733,
+                  "unavailable_within_gate": 0,
+                  "valid": 23133927,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "midpoint_age_p90": {
+          "unit": "seconds",
+          "views": {
+            "fast": {
+              "field": "midpoint_change_age_p90_seconds_window60s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 14376.08021654,
+                  "median": 4.352158834592506,
+                  "p90": 17.915846312255038,
+                  "p99": 70.34305484914458,
+                  "unavailable_within_gate": 54657,
+                  "valid": 4814223,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 14376.08021654,
+                  "median": 6.063919023701211,
+                  "p90": 34.42791256566965,
+                  "p99": 176.23915876223882,
+                  "unavailable_within_gate": 162200,
+                  "valid": 42541921,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 11003.250528126999,
+                  "median": 5.079971448520338,
+                  "p90": 23.655500016456248,
+                  "p99": 97.00318714210871,
+                  "unavailable_within_gate": 84795,
+                  "valid": 12567881,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 14367.08021654,
+                  "median": 7.207103009595809,
+                  "p90": 44.37675638294725,
+                  "p99": 231.1769972563989,
+                  "unavailable_within_gate": 22748,
+                  "valid": 25159817,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "midpoint_change_age_p90_seconds_window300s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 2424.150962135,
+                  "median": 4.900281136319017,
+                  "p90": 20.92220390199646,
+                  "p99": 95.30305094749568,
+                  "unavailable_within_gate": 14102,
+                  "valid": 4431660,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 11869.463855817,
+                  "median": 6.787345154005056,
+                  "p90": 44.037703746768564,
+                  "p99": 227.14924542400394,
+                  "unavailable_within_gate": 51375,
+                  "valid": 39022626,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 11869.463855817,
+                  "median": 5.941375821197036,
+                  "p90": 30.10908815096766,
+                  "p99": 132.2863738127797,
+                  "unavailable_within_gate": 26654,
+                  "valid": 11467658,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 3989.17666996,
+                  "median": 7.8906485533713715,
+                  "p90": 57.85048058834741,
+                  "p99": 291.21797105230013,
+                  "unavailable_within_gate": 10619,
+                  "valid": 23123308,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "quote_age_p90": {
+          "unit": "seconds",
+          "views": {
+            "fast": {
+              "field": "quote_age_p90_seconds_window60s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 2438.6610936839998,
+                  "median": 1.843398523651769,
+                  "p90": 4.697343422671991,
+                  "p99": 11.212988297643943,
+                  "unavailable_within_gate": 0,
+                  "valid": 4868880,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 20872.044692049,
+                  "median": 2.1503072885490626,
+                  "p90": 6.099327065156633,
+                  "p99": 18.058248500292468,
+                  "unavailable_within_gate": 0,
+                  "valid": 42704121,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 11003.050528127,
+                  "median": 1.6979709756506671,
+                  "p90": 4.473947391727199,
+                  "p99": 10.161830870569368,
+                  "unavailable_within_gate": 0,
+                  "valid": 12652676,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 20872.044692049,
+                  "median": 2.5078383743425827,
+                  "p90": 7.186610877909412,
+                  "p99": 22.453037091431025,
+                  "unavailable_within_gate": 0,
+                  "valid": 25182565,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "quote_age_p90_seconds_window300s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 2414.6610936839998,
+                  "median": 1.9891826833933632,
+                  "p90": 4.419480705131206,
+                  "p99": 8.161409111608803,
+                  "unavailable_within_gate": 0,
+                  "valid": 4445762,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 20848.044692049,
+                  "median": 2.3035577705016714,
+                  "p90": 5.68589444227927,
+                  "p99": 14.371267192683261,
+                  "unavailable_within_gate": 0,
+                  "valid": 39074001,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 11862.961710703,
+                  "median": 1.836298905562968,
+                  "p90": 4.220013562128081,
+                  "p99": 7.649486889055499,
+                  "unavailable_within_gate": 0,
+                  "valid": 11494312,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 20848.044692049,
+                  "median": 2.6784813854018137,
+                  "p90": 6.576110944636845,
+                  "p99": 18.6878166447624,
+                  "unavailable_within_gate": 0,
+                  "valid": 23133927,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "movement_friction": {
+      "elapsed_seconds": 110.05912012699991,
+      "metrics": {
+        "movement": {
+          "unit": "bps",
+          "views": {
+            "fast": {
+              "field": "midpoint_rms_5s_bps_hl30s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 5543.766817781827,
+                  "median": 55.401739487197695,
+                  "p90": 151.17025611266962,
+                  "p99": 335.1306756566804,
+                  "unavailable_within_gate": 16526,
+                  "valid": 4852354,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 10427.669403539647,
+                  "median": 32.03276672839867,
+                  "p90": 104.10921999889966,
+                  "p99": 269.42640742615276,
+                  "unavailable_within_gate": 56326,
+                  "valid": 42647795,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 10427.669403539647,
+                  "median": 45.52547443978921,
+                  "p90": 135.66053443011432,
+                  "p99": 369.55430270433595,
+                  "unavailable_within_gate": 34173,
+                  "valid": 12618503,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 2276.663058918603,
+                  "median": 22.103866858722185,
+                  "p90": 75.70753933829559,
+                  "p99": 168.86431987468302,
+                  "unavailable_within_gate": 5627,
+                  "valid": 25176938,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "midpoint_rms_5s_bps_hl120s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 1918.4172859545445,
+                  "median": 60.25221426275198,
+                  "p90": 146.67294538347278,
+                  "p99": 285.4316675418563,
+                  "unavailable_within_gate": 4281,
+                  "valid": 4441481,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 5689.981320549405,
+                  "median": 36.24434048522546,
+                  "p90": 103.84677514166393,
+                  "p99": 239.4470742886428,
+                  "unavailable_within_gate": 19608,
+                  "valid": 39054393,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 5689.981320549405,
+                  "median": 49.14907151103682,
+                  "p90": 134.30073939260706,
+                  "p99": 313.9771196009384,
+                  "unavailable_within_gate": 12120,
+                  "valid": 11482192,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 1139.8254051941713,
+                  "median": 25.708984314886784,
+                  "p90": 76.8668253368281,
+                  "p99": 155.4130086243751,
+                  "unavailable_within_gate": 3207,
+                  "valid": 23130720,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "participation": {
+          "unit": "0\u20131",
+          "views": {
+            "fast": {
+              "field": "movement_participation_hl30s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 0.7923490843008076,
+                  "median": 0.446,
+                  "p90": 0.584,
+                  "p99": 0.666,
+                  "unavailable_within_gate": 16526,
+                  "valid": 4852354,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 0.8202813210219634,
+                  "median": 0.40700000000000003,
+                  "p90": 0.579,
+                  "p99": 0.668,
+                  "unavailable_within_gate": 56326,
+                  "valid": 42647795,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 0.8202813210219634,
+                  "median": 0.427,
+                  "p90": 0.588,
+                  "p99": 0.675,
+                  "unavailable_within_gate": 34173,
+                  "valid": 12618503,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 0.798496128376925,
+                  "median": 0.386,
+                  "p90": 0.5720000000000001,
+                  "p99": 0.665,
+                  "unavailable_within_gate": 5627,
+                  "valid": 25176938,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "movement_participation_hl120s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 0.6790339815776294,
+                  "median": 0.402,
+                  "p90": 0.514,
+                  "p99": 0.583,
+                  "unavailable_within_gate": 4281,
+                  "valid": 4441481,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 0.6997974094108136,
+                  "median": 0.372,
+                  "p90": 0.519,
+                  "p99": 0.598,
+                  "unavailable_within_gate": 19608,
+                  "valid": 39054393,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 0.6997974094108136,
+                  "median": 0.385,
+                  "p90": 0.52,
+                  "p99": 0.595,
+                  "unavailable_within_gate": 12120,
+                  "valid": 11482192,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 0.6995247543181934,
+                  "median": 0.357,
+                  "p90": 0.52,
+                  "p99": 0.602,
+                  "unavailable_within_gate": 3207,
+                  "valid": 23130720,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "ratio": {
+          "unit": "ratio",
+          "views": {
+            "fast": {
+              "field": "midpoint_rms_5s_to_spread_hl30s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 50.21464875786426,
+                  "median": 0.9203356721430282,
+                  "p90": 2.0648542032930024,
+                  "p99": 3.9903198205290744,
+                  "unavailable_within_gate": 22094,
+                  "valid": 4846786,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 81.97438847463499,
+                  "median": 0.7949909856399,
+                  "p90": 2.0192244688065686,
+                  "p99": 4.220013562128081,
+                  "unavailable_within_gate": 73113,
+                  "valid": 42631008,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 81.97438847463499,
+                  "median": 0.9542373206359396,
+                  "p90": 2.516618941414067,
+                  "p99": 5.156448074753993,
+                  "unavailable_within_gate": 43425,
+                  "valid": 12609251,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 77.15829224501444,
+                  "median": 0.7031849529806309,
+                  "p90": 1.7387455853370102,
+                  "p99": 3.5380617791295026,
+                  "unavailable_within_gate": 7594,
+                  "valid": 25174971,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "midpoint_rms_5s_to_spread_hl120s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 13.265751717564424,
+                  "median": 0.9937155332430825,
+                  "p90": 1.9594398187394915,
+                  "p99": 3.492907309970618,
+                  "unavailable_within_gate": 7454,
+                  "valid": 4438308,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 34.34049316024739,
+                  "median": 0.8776105792643432,
+                  "p90": 1.9891826833933632,
+                  "p99": 3.7232635936686647,
+                  "unavailable_within_gate": 29727,
+                  "valid": 39044274,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 28.746767204510856,
+                  "median": 1.0441866822585568,
+                  "p90": 2.4041660827908196,
+                  "p99": 4.37898664239373,
+                  "unavailable_within_gate": 16276,
+                  "valid": 11478036,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 34.34049316024739,
+                  "median": 0.7860384307500733,
+                  "p90": 1.759363397376282,
+                  "p99": 3.2844834656021167,
+                  "unavailable_within_gate": 5997,
+                  "valid": 23127930,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "spread": {
+          "unit": "bps",
+          "views": {
+            "fast": {
+              "field": "quoted_spread_bps_hl30s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 2809.988468551897,
+                  "median": 57.119428177447986,
+                  "p90": 118.40248343138127,
+                  "p99": 267.4057961344071,
+                  "unavailable_within_gate": 20753,
+                  "valid": 4848127,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 8949.6095210085,
+                  "median": 41.734219810552396,
+                  "p90": 93.86928530858006,
+                  "p99": 216.02227542494745,
+                  "unavailable_within_gate": 69488,
+                  "valid": 42634633,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 8949.6095210085,
+                  "median": 47.545427060879234,
+                  "p90": 97.49443016194631,
+                  "p99": 257.52696452057376,
+                  "unavailable_within_gate": 41292,
+                  "valid": 12611384,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 1686.7468043324434,
+                  "median": 34.42791256566965,
+                  "p90": 88.12144587865868,
+                  "p99": 185.79280352016818,
+                  "unavailable_within_gate": 7443,
+                  "valid": 25175122,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "quoted_spread_bps_hl120s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 2232.0426312673035,
+                  "median": 57.119428177447986,
+                  "p90": 114.29568471594618,
+                  "p99": 249.8863380208446,
+                  "unavailable_within_gate": 7431,
+                  "valid": 4438331,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 4982.739107353085,
+                  "median": 41.52108200006278,
+                  "p90": 90.14940742441237,
+                  "p99": 197.34342540938118,
+                  "unavailable_within_gate": 29616,
+                  "valid": 39044385,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 4982.739107353085,
+                  "median": 47.182698291098816,
+                  "p90": 94.10675523557796,
+                  "p99": 250.51433853946128,
+                  "unavailable_within_gate": 16188,
+                  "valid": 11478124,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 1027.3475435405055,
+                  "median": 34.42791256566965,
+                  "p90": 84.41314400354753,
+                  "p99": 163.02190729990184,
+                  "unavailable_within_gate": 5997,
+                  "valid": 23127930,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "throughput_liquidity": {
+      "elapsed_seconds": 122.1597783890029,
+      "metrics": {
+        "ask_size": {
+          "unit": "shares",
+          "views": {
+            "fast": {
+              "field": "ask_size_mean_shares_hl30s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 2177314.654991473,
+                  "median": 1251.003065325378,
+                  "p90": 6341.320563867999,
+                  "p99": 95319.48315803199,
+                  "unavailable_within_gate": 5428,
+                  "valid": 4863452,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 2440680.000048289,
+                  "median": 1328.422611149303,
+                  "p90": 8909.627994788278,
+                  "p99": 71502.37997911734,
+                  "unavailable_within_gate": 22882,
+                  "valid": 42681239,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 1764532.7117588238,
+                  "median": 1802.5279538469667,
+                  "p90": 9846.766921630726,
+                  "p99": 65022.23847600688,
+                  "unavailable_within_gate": 14180,
+                  "valid": 12638496,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 2440680.000048289,
+                  "median": 1120.5870834143623,
+                  "p90": 8909.627994788278,
+                  "p99": 71860.7921627804,
+                  "unavailable_within_gate": 3274,
+                  "valid": 25179291,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "ask_size_mean_shares_hl120s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 1132653.79539634,
+                  "median": 1372.338615629191,
+                  "p90": 6231.295481389457,
+                  "p99": 101975.73724195489,
+                  "unavailable_within_gate": 1163,
+                  "valid": 4444599,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 1482346.927423591,
+                  "median": 1501.671796040775,
+                  "p90": 8954.292703482508,
+                  "p99": 72764.70223312303,
+                  "unavailable_within_gate": 13066,
+                  "valid": 39060935,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 951345.5023121327,
+                  "median": 2042.6649109644688,
+                  "p90": 9797.650979203469,
+                  "p99": 66501.84448901139,
+                  "unavailable_within_gate": 9259,
+                  "valid": 11485053,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 1482346.927423591,
+                  "median": 1254.1369887607334,
+                  "p90": 9044.294891440137,
+                  "p99": 73312.49666119275,
+                  "unavailable_within_gate": 2644,
+                  "valid": 23131283,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "bid_size": {
+          "unit": "shares",
+          "views": {
+            "fast": {
+              "field": "bid_size_mean_shares_hl30s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 3160846.6056817905,
+                  "median": 1260.4283890983033,
+                  "p90": 5912.54049761293,
+                  "p99": 68527.1576245074,
+                  "unavailable_within_gate": 5428,
+                  "valid": 4863452,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 3160846.6056817905,
+                  "median": 1400.08189597539,
+                  "p90": 9044.294891440137,
+                  "p99": 68870.65644405661,
+                  "unavailable_within_gate": 22882,
+                  "valid": 42681239,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 1473634.7365532252,
+                  "median": 1857.4535571535148,
+                  "p90": 9797.650979203469,
+                  "p99": 64697.93372114868,
+                  "unavailable_within_gate": 14180,
+                  "valid": 12638496,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 2491922.477761699,
+                  "median": 1192.9232354884318,
+                  "p90": 9319.765131831084,
+                  "p99": 71145.7553836779,
+                  "unavailable_within_gate": 3274,
+                  "valid": 25179291,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "bid_size_mean_shares_hl120s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 1542748.73664953,
+                  "median": 1396.5835659700042,
+                  "p90": 5839.081317764064,
+                  "p99": 67675.88717870908,
+                  "unavailable_within_gate": 1163,
+                  "valid": 4444599,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 2145831.347408486,
+                  "median": 1586.633783044449,
+                  "p90": 9203.980727813794,
+                  "p99": 69215.87705860389,
+                  "unavailable_within_gate": 13066,
+                  "valid": 39060935,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 758093.1326837719,
+                  "median": 2099.6455894201777,
+                  "p90": 9920.902835708981,
+                  "p99": 63894.230658631364,
+                  "unavailable_within_gate": 9259,
+                  "valid": 11485053,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 2145831.347408486,
+                  "median": 1345.1446890406685,
+                  "p90": 9579.643117741898,
+                  "p99": 72221.00089499021,
+                  "unavailable_within_gate": 2644,
+                  "valid": 23131283,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "dollar_rate": {
+          "unit": "USD/s",
+          "views": {
+            "fast": {
+              "field": "dollar_rate_usd_per_second_hl30s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 16089354.223744057,
+                  "median": 2972.514899809773,
+                  "p90": 69736.95523716135,
+                  "p99": 514010.0282775354,
+                  "unavailable_within_gate": 0,
+                  "valid": 4868880,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 27512264.87609696,
+                  "median": 4558.644778398061,
+                  "p90": 63416.80899783166,
+                  "p99": 648552.6443626218,
+                  "unavailable_within_gate": 0,
+                  "valid": 42704121,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 2265141.118746758,
+                  "median": 2476.4869530135907,
+                  "p90": 18123.139450452363,
+                  "p99": 129961.34062887417,
+                  "unavailable_within_gate": 0,
+                  "valid": 12652676,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 27512264.87609696,
+                  "median": 7441.782129014006,
+                  "p90": 91125.14186619301,
+                  "p99": 948368.9995728672,
+                  "unavailable_within_gate": 0,
+                  "valid": 25182565,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "dollar_rate_usd_per_second_hl120s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 8379186.0764993355,
+                  "median": 3453.7314318617555,
+                  "p90": 88875.22940699803,
+                  "p99": 592732.4009043056,
+                  "unavailable_within_gate": 0,
+                  "valid": 4445762,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 20380923.637369737,
+                  "median": 5349.792715311169,
+                  "p90": 69911.51823808716,
+                  "p99": 693841.3137116297,
+                  "unavailable_within_gate": 0,
+                  "valid": 39074001,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 1112479.9839899715,
+                  "median": 2820.4324614083107,
+                  "p90": 18351.1130602456,
+                  "p99": 129636.84057138434,
+                  "unavailable_within_gate": 0,
+                  "valid": 11494312,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 20380923.637369737,
+                  "median": 8909.627994788278,
+                  "p90": 98222.42404883401,
+                  "p99": 1004498.5346784148,
+                  "unavailable_within_gate": 0,
+                  "valid": 23133927,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        },
+        "share_rate": {
+          "unit": "shares/s",
+          "views": {
+            "fast": {
+              "field": "share_rate_per_second_hl30s",
+              "gate_selected": {
+                "after_hours": 4868880,
+                "pooled": 42704121,
+                "premarket": 12652676,
+                "rth": 25182565
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 254254.33114456548,
+                  "median": 1351.8922673742566,
+                  "p90": 7312.666498643665,
+                  "p99": 28210.923874871212,
+                  "unavailable_within_gate": 0,
+                  "valid": 4868880,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 1608802.2539890108,
+                  "median": 1659.709168396765,
+                  "p90": 11730.11508747294,
+                  "p99": 56245.55085200208,
+                  "unavailable_within_gate": 0,
+                  "valid": 42704121,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 1446518.3844098353,
+                  "median": 1947.860262669373,
+                  "p90": 14149.425877948712,
+                  "p99": 60173.26209948403,
+                  "unavailable_within_gate": 0,
+                  "valid": 12652676,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 1608802.2539890108,
+                  "median": 1610.6277949936978,
+                  "p90": 11497.82344514982,
+                  "p99": 58394.84388902149,
+                  "unavailable_within_gate": 0,
+                  "valid": 25182565,
+                  "zeros": 0
+                }
+              }
+            },
+            "slow": {
+              "field": "share_rate_per_second_hl120s",
+              "gate_selected": {
+                "after_hours": 4445762,
+                "pooled": 39074001,
+                "premarket": 11494312,
+                "rth": 23133927
+              },
+              "sessions": {
+                "after_hours": {
+                  "maximum": 161681.86611152627,
+                  "median": 1532.0277799412102,
+                  "p90": 7404.661098281211,
+                  "p99": 27240.586496621792,
+                  "unavailable_within_gate": 0,
+                  "valid": 4445762,
+                  "zeros": 0
+                },
+                "pooled": {
+                  "maximum": 1118502.195896663,
+                  "median": 1885.5404858480897,
+                  "p90": 12239.433841436752,
+                  "p99": 55685.88831998879,
+                  "unavailable_within_gate": 0,
+                  "valid": 39074001,
+                  "zeros": 0
+                },
+                "premarket": {
+                  "maximum": 907058.5913069053,
+                  "median": 2235.1255900880196,
+                  "p90": 14690.141910303464,
+                  "p99": 58541.01613792387,
+                  "unavailable_within_gate": 0,
+                  "valid": 11494312,
+                  "zeros": 0
+                },
+                "rth": {
+                  "maximum": 1118502.195896663,
+                  "median": 1825.2135428166089,
+                  "p90": 12087.380730216988,
+                  "p99": 58249.0366143336,
+                  "unavailable_within_gate": 0,
+                  "valid": 23133927,
+                  "zeros": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "gate": {
+    "trade_age_p90_maximum_inclusive": 2.0,
+    "trade_rate_minimum_inclusive": 1.0
+  },
+  "inventory": {
+    "name": "inventory.json",
+    "sha256": "766564b167a7a8b0987b7b3ceae5a1efdad5fe4ee029912ea28b43d92c6bb3d7"
+  },
+  "members": 5208,
+  "population": "corresponding fast/slow active-tape gate; field-specific validity",
+  "release_source_revision": "ea2e16128225a91ceb6003fcb3f6ef80985ba8e0",
+  "render_source_revision": "5f35b21",
+  "represented_rows": 299980800,
+  "runtime_seconds": 383.83279089501593,
+  "schema": "active_tape_main_feature_ecdf_summary_v1",
+  "session_assignment": "interval left edge in America/New_York",
+  "weighting": "one valid stock-second per observation"
+}

@@ -1,0 +1,35 @@
+{
+  "active_stock_hours": 11862.255833333333,
+  "completed_symbol_days": 5208,
+  "first_date": "2026-03-09",
+  "gate": {
+    "half_life_seconds": 30,
+    "trade_age_p90_maximum_inclusive": 2.0,
+    "trade_age_window_seconds": 60,
+    "trade_rate_minimum_inclusive": 1.0
+  },
+  "gate_fail_seconds": 251049775,
+  "gate_name": "fast",
+  "gate_pass_seconds": 42704121,
+  "gate_pass_share_represented": 0.1423561807955709,
+  "gate_pass_share_valid": 0.145373802974174,
+  "gate_unavailable_seconds": 6226904,
+  "gate_valid_seconds": 293753896,
+  "last_date": "2026-08-31",
+  "maximum_daily_active_stock_hours": 194.95472222222222,
+  "mean_daily_active_stock_hours": 97.23160519125682,
+  "member_rows_unique": true,
+  "minimum_daily_active_stock_hours": 36.87722222222222,
+  "represented_seconds": 299980800,
+  "represented_trading_dates": 122,
+  "schema": "daily_active_tape_hours_v1",
+  "session": "pooled",
+  "source_config": {
+    "name": "expanded_config.json",
+    "sha256": "81389968bfe57ac9d283434c65a94a1fe532fd167521c81e514a8c75b902b430"
+  },
+  "source_member_gate_accounting": {
+    "name": "member_gate_accounting.parquet",
+    "sha256": "31860691a21955fb978e75269cfe246b2c24af0bfa80007aa5565f003bd8933a"
+  }
+}

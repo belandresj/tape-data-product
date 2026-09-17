@@ -1,0 +1,26 @@
+{
+  "outputs": {
+    "daily_completed_members.csv": {
+      "bytes": 2384,
+      "sha256": "fd3c7e60ab75716763fcb654e8e14bd491182636189f4bf04469e342a7a6a869"
+    },
+    "daily_completed_members.png": {
+      "bytes": 131202,
+      "sha256": "33659e2764bbbc8e3be054ef564ab3bbea455312cea5c8b325228dd3d7997460"
+    },
+    "daily_completed_members.svg": {
+      "bytes": 96032,
+      "sha256": "1d75af7cf07e8901d5935e26deb053f871ad76d88742e8932ccc6dc8ebcc7a24"
+    },
+    "daily_completed_members_summary.json": {
+      "bytes": 544,
+      "sha256": "26d2e36630b0af86a1a6404fca6cf40fca2e1508ff95a0429b7401b86d70d8e4"
+    }
+  },
+  "renderer": {
+    "name": "endpoint_population.py",
+    "sha256": "e1091f584cede8f3169a37d13ea0cc8459649a348ca8a3721eca01d7651f71eb"
+  },
+  "schema": "daily_completed_members_artifacts_v1",
+  "source_inventory_sha256": "766564b167a7a8b0987b7b3ceae5a1efdad5fe4ee029912ea28b43d92c6bb3d7"
+}

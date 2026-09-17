@@ -1,0 +1,375 @@
+# U.S. Equities Microstructure Data Product
+
+## 1. Purpose
+
+Short-horizon signals are not equally meaningful under every market condition. A quantitative researcher may want to study a signal only when a stock has substantial recent movement, when that movement is large relative to the quoted spread, when transactions or traded dollars arrive at a sufficient rate, or when trades and quotes are recent. Tape Data Product V2 measures these characteristics once per second so that they can define an explicit research universe rather than remain informal judgments about whether a stock was “active.”
+
+This distinction matters because selecting a symbol-day after one sharp move says little about the conditions present during the rest of its session. The database lets a researcher specify the conditions of interest and retrieve the matching observations, time ranges, and symbol-days for inspection, export, or downstream signal research. Different measurements can be combined to separate superficially similar episodes—for example, comparable price movement occurring with very different quoted friction or transaction activity.
+
+The product is therefore a tool for reproducible historical selection and investigation, including research into directional strategies. Its measurements describe the tape observed at each timestamp; they do not by themselves establish that a condition will persist, predict subsequent returns, produce executable fills, or earn a profit after costs.
+
+## 2. Research Population and Timing
+
+To create a manageable historical population for detailed trade-and-quote processing, this report first screens inexpensive minute aggregates. A **symbol-day** means one stock on one trading date. It enters the population when two consecutive minutes contain a combined high–low log-price range of at least 700 basis points, at least 1,600 reported trades in total, and at least 100 reported trades in each minute. These thresholds deliberately favor eventful symbol-days while controlling acquisition, storage, and processing costs. They are not optimized trading rules, and they do not prove that every qualifying move was liquid, error-free, or representative of the broader equity market.
+
+The accepted release contains 5,208 symbol-days across 122 trading dates from March 9 through August 31, 2026. Daily membership ranges from 19 to 76 symbol-days and averages 42.69. Figure 1 shows how that completed research population is distributed across the represented dates.
+![Figure 1. Completed symbol-days by trading date](assets/daily_completed_members.png)
+*Figure 1. Completed symbol-days by represented trading date. Each bar counts the stocks with stored full-session observations on that date.*
+
+Population membership is retrospective. Once a symbol-day qualifies, the release contains its stored full-session observations, including observations from before the qualifying two-minute episode. The report therefore describes conditions across historically selected sessions; it does not reconstruct which stocks a live screener would have made available at each moment. The same feature definitions could be applied to a broader population, but doing so would require acquiring and processing that population and validating the larger operational scale.
+
+## 3. Features
+
+The database's 27 queryable fields support **12 researcher-facing dimensions**. Nine measurements have fast and slow exponentially weighted views, producing 18 fields. Trade, quote, and midpoint-change freshness each provide a current age plus 60-second and 300-second age-p90 readings, producing the other nine fields. The displayed-liquidity fields are stored in shares; the table presents their query-time dollar-notional derivations because those are more comparable across stocks.
+
+### 3.1 Measurements and views
+
+| Feature | Measurement | Unit | Published views | Interpretation |
+|---|---|---|---|---|
+| Movement | RMS of five-second endpoint-midpoint returns | bps | Fast, slow | Scale of recent price movement |
+| Participation | Concentration of the return magnitudes used in movement | 0–1 | Fast, slow | Whether movement is broadly distributed or dominated by fewer returns |
+| Quoted spread | Duration-weighted full bid–ask spread | bps | Fast, slow | Recent quoted friction |
+| Movement/spread | Movement divided by the corresponding quoted spread | ratio | Fast, slow | Movement scale relative to quoted friction |
+| Trade rate | Eligible reported trades per supported second | trades/s | Fast, slow | Transaction frequency |
+| Share rate | Eligible traded shares per supported second | shares/s | Fast, slow | Share throughput |
+| Dollar rate | Eligible traded dollars per supported second | USD/s | Fast, slow | Dollar throughput |
+| Displayed bid notional | Mean shares displayed at the best bid, valued at the current bid | USD | Fast, slow | Recent displayed bid-side liquidity on a dollar scale |
+| Displayed ask notional | Mean shares displayed at the best ask, valued at the current ask | USD | Fast, slow | Recent displayed ask-side liquidity on a dollar scale |
+| Trade freshness | Current trade age and trailing trade-age p90 | seconds | Current, 60s, 300s | Whether an eligible trade occurred recently now and consistently through recent history |
+| Quote freshness | Current quote age and trailing quote-age p90 | seconds | Current, 60s, 300s | Whether quote messages were recent now and consistently through recent history |
+| Midpoint freshness | Current midpoint-change age and trailing midpoint-change-age p90 | seconds | Current, 60s, 300s | Whether the prevailing midpoint changed recently now and consistently through recent history |
+
+**Movement.** Movement is the exponentially weighted root-mean-square magnitude of five-second endpoint-midpoint returns, recalculated every second. It measures the scale of recent price changes, not their direction.
+
+**Participation.** Participation is high when return magnitudes are broadly distributed through the weighted history and low when movement is dominated by fewer large returns. It does not measure trend quality, direction, or temporal ordering.
+
+**Quoted spread.** Quoted spread is the recent duration-weighted full separation between the best bid and ask, expressed in basis points. It measures displayed quoted friction rather than realized execution cost.
+
+**Movement/spread.** Movement/spread compares the measured movement scale with the corresponding quoted spread. It is useful for separating similar movement occurring under different quoted friction, but it is not a capturable-return or expectancy estimate.
+
+**Trade rate.** Trade rate measures the frequency of eligible reported transactions. A reliably observed second with no eligible trades contributes a valid zero; missing observation time does not.
+
+**Share rate.** Share rate measures eligible share volume per second. It distinguishes transaction frequency from the quantity of stock changing hands.
+
+**Dollar rate.** Dollar rate measures eligible traded value per second. It provides a price-sensitive throughput measure that can differ materially from share rate.
+
+**Displayed bid notional.** The stored fast and slow measurements are mean shares displayed at the best bid. For research queries, the report expresses them on a dollar scale by multiplying the mean shares by the current bid price. This is current-price-valued mean displayed size, not an EW average of historical price multiplied by size.
+
+**Displayed ask notional.** The ask-side reading applies the same derivation using the current ask price. Bid and ask remain separate so that side-specific displayed liquidity is not concealed by an aggregate. Neither side includes deeper quotes, hidden liquidity, queue position, or executable capacity.
+
+**Trade freshness.** Current trade age answers whether an eligible trade occurred recently at this endpoint. Trade-age p90 answers whether trades remained consistently recent over the preceding 60 or 300 seconds. A single new trade after a quiet interval can satisfy a current-age threshold while leaving the historical p90 elevated.
+
+**Quote freshness.** Current quote age measures time since the latest accepted quote message, while quote-age p90 describes upper-tail quote staleness over the preceding window. Quote messages reset the underlying age series without necessarily changing the midpoint, so these readings measure message freshness rather than price movement.
+
+**Midpoint freshness.** Current midpoint-change age measures time since the latest observed valid change in the prevailing midpoint. Midpoint-change-age p90 measures whether those changes remained consistently recent over 60 or 300 seconds. Together they distinguish frequently refreshed quotes from tape in which the prevailing price actually updates.
+
+### 3.2 Views, timing, and availability
+
+The nine movement, friction, activity, and displayed-liquidity measurements are published in a **fast** view with a 30-second exponential half-life and a **slow** view with a 120-second half-life. A half-life is a decay setting—the weight of an observation halves after that interval—not a hard lookback window. Freshness p90s instead use ordinary fixed trailing windows of 60 and 300 seconds, while current ages are unsmoothed. Displayed bid and ask notionals are query-time derivations from the corresponding EW mean shares and current side price; they are not additional stored features.
+
+Each timestamp labels measurements constructed from preceding events; a row ending at time `t` summarizes the second immediately before `t`. Missing, invalid, or insufficiently covered inputs remain unavailable rather than being converted to observed inactivity. Recognized halts suppress publication and reset the affected histories. After trading resumes, the fast and slow views require 60 and 300 seconds of new startup history, respectively, before they can become available again.
+
+### 3.3 Comparing tapes with different movement to spread ratios
+
+Figure 2 compares two retrospectively selected endpoints with similar movement, transaction activity, and participation but very different quoted spreads.
+
+| Feature | GPUS fast | GPUS slow | CAST fast | CAST slow |
+|---|---:|---:|---:|---:|
+| Movement (bps) | 69.03 | 64.45 | 63.89 | 67.79 |
+| Trade rate (trades/s) | 41.45 | 43.42 | 39.36 | 40.68 |
+| Dollar rate (USD/s) | $33,704 | $35,678 | $36,019 | $37,881 |
+| Participation | 0.667 | 0.593 | 0.641 | 0.608 |
+| Quoted spread (bps) | **22.53** | **19.92** | **68.83** | **74.31** |
+| Movement/spread | **3.06** | **3.23** | **0.93** | **0.91** |
+
+GPUS and CAST have comparable movement and transaction activity at these endpoints, but CAST's quoted spread is approximately three to four times wider. Consequently, GPUS has movement/spread above 3 in both views while CAST remains below 1. The comparison shows why neither movement nor transaction activity can substitute for an explicit measure of quoted friction.
+
+![Figure 2. Comparable movement and trading activity with different quoted spreads](assets/gpus_cast_quoted_spread_comparison.png)
+
+*Figure 2. One-second bid and ask endpoints ending at the selected GPUS and CAST observations on June 18, 2026. Each panel is independently rebased to its first valid midpoint and uses the same y-scale.*
+
+## 4. Active-Tape Population
+
+A symbol-day can enter the release because of one eventful two-minute episode and still contain long quiet stretches. To focus the report's descriptive figures on consistently traded observations, we apply an **active-tape gate** separately to the fast and slow feature views. The fast gate requires a trade rate of at least one eligible trade per second and a 60-second trade-age p90 no greater than two seconds. The slow gate applies the same thresholds using the slow trade rate and the 300-second trade-age window.
+
+This gate defines the population used in the report's feature-distribution figures. It is not a data-quality requirement, a trading rule, or an automatic restriction on database queries. Researchers remain free to query the complete release using different activity or freshness conditions.
+
+Under the fast gate, the release provides **11,862.3 active stock-hours** across 122 represented dates, averaging **97.23 stock-hours per date**. This is **14.24% of all represented time** within the minute screened universe. A stock-hour is 3,600 passing one-second observations summed across stocks, so simultaneous activity in ten stocks for one hour contributes ten stock-hours.
+
+![Figure 3. Active-tape stock-hours by trading date](assets/daily_active_tape_hours.png)
+
+*Figure 3. Fast-gated active-tape stock-hours by represented trading date. Dates are evenly spaced; the figure measures retrospective research supply rather than executable trading opportunities.*
+
+Daily active-tape supply ranges from 36.88 to 194.95 stock-hours, showing that the amount of usable active tape varies materially across dates. Seconds with unavailable gate inputs are counted separately from observed seconds that validly fail the gate: unavailable data are not treated as non-active tape. Detailed valid, passing, failing, and unavailable accounting is provided in Appendix B.
+
+## 5. Joint Distributions
+
+The measurements are most useful in combination. Figure 4 compares movement with quoted spread, participation, and trade rate within the corresponding fast and slow active-tape populations. Each panel groups valid selected stock-seconds into bins; lighter colors indicate a larger share of that panel's observations, and logarithmic color scaling keeps less common combinations visible. On the movement–spread panels, the reference lines mark movement/spread ratios of 1 and 5.
+
+![Figure 4. Active-tape joint distributions](assets/joint_distributions_active_tape.png)
+
+*Figure 4. Joint distributions of movement with quoted spread, participation, and trade rate. Fast and slow panels use their corresponding active-tape gates and valid feature pairs.*
+
+**Movement and quoted spread rise together, but not proportionally.** Larger movement often occurs with wider quoted spreads. The broad distribution around the constant-ratio lines shows why movement alone does not establish whether its scale is large relative to quoted friction. Observations above a reference line have movement greater than the indicated number of full spreads, but this remains a descriptive comparison rather than evidence of a capturable return.
+
+**Participation adds information about concentration, not direction.** Similar participation values occur across a wide range of movement magnitudes. A high-movement observation can reflect either broadly distributed return magnitudes or a more concentrated history, and participation does not divide the population into clear directional regimes because it discards return signs and ordering.
+
+**Trade rate does not determine movement.** Movement generally shifts higher as transaction frequency increases, but the distribution remains broad: similar trade rates coexist with materially different movement scales. Transaction activity is therefore useful as a separate query condition, not as a substitute for movement or quoted spread.
+
+These plots describe the selected historical population rather than independent observations or causal relationships. Adjacent seconds share overlapping returns and trailing histories, stocks and dates contribute unequal amounts of valid active time, and session composition can influence the visible concentrations. The fast and slow columns also use separately selected populations, so differences between them cannot be attributed only to the change in half-life.
+
+### 5.1 Conditioning movement and spread on transaction activity
+
+Figure 5 partitions the movement–spread relationship by the corresponding trade rate. Within the active-tape population, higher-rate bands shift toward larger movement and wider quoted spreads. The distribution does not collapse onto a single movement/spread ratio, however: each activity band contains observations on both sides of the ratio reference lines. Transaction frequency therefore changes where observations are concentrated without determining whether movement is large relative to quoted friction.
+
+![Figure 5. Movement and spread across transaction-activity bands](assets/movement_spread_by_activity_band.png)
+
+*Figure 5. Movement and quoted spread within four mutually exclusive trade-rate bands among active-tape observations. Bands are 1–<10, 10–<30, 30–<100, and at least 100 trades per second. The top row uses the fast view and the bottom row the slow view; diagonal references mark movement/spread ratios of 1 and 5.*
+
+## 6. Querying the Database
+
+The database is designed to turn research requirements into a reproducible set of one-second endpoints. The supported Python interface opens a date-scoped DuckDB view over the completed release; researchers can submit SQL with `db.sql(...)`, return a DataFrame or Arrow batches, or export the result to Parquet. The same SQL can be executed from the `tape-product endpoint-data sql` command. Neither interface recalculates features, and neither applies the report's active-tape gate unless the researcher includes those conditions explicitly.
+
+### 6.1 Selecting endpoints
+
+The following query selects endpoints with fast movement above 10 bps, fast quoted spread below 100 bps, movement/spread above 2, participation of at least 0.4, at least 10 trades per second, and recent quote and trade histories. These thresholds are an exploratory definition of a strong, active tape—not an optimized signal or a recommended trading rule.
+
+```sql
+SELECT
+    symbol,
+    session_date,
+    session,
+    endpoint_time,
+    midpoint_rms_5s_bps_hl30s,
+    quoted_spread_bps_hl30s,
+    midpoint_rms_5s_to_spread_hl30s,
+    movement_participation_hl30s,
+    trade_rate_per_second_hl30s,
+    quote_age_p90_seconds_window60s,
+    trade_age_p90_seconds_window60s
+FROM features
+WHERE midpoint_rms_5s_bps_hl30s > 10
+  AND quoted_spread_bps_hl30s < 100
+  AND midpoint_rms_5s_to_spread_hl30s > 2
+  AND movement_participation_hl30s >= 0.4
+  AND trade_rate_per_second_hl30s >= 10
+  AND quote_age_p90_seconds_window60s <= 2
+  AND trade_age_p90_seconds_window60s <= 2
+ORDER BY session_date, symbol, endpoint_time;
+```
+
+Unavailable feature values are SQL `NULL`, so they do not pass these comparisons. Valid zeros remain zeros. Date bounds are supplied when the database is opened, allowing the same query to be run against a bounded part of the release without changing its feature conditions.
+
+Across the five completed dates from June 1 through June 5, 2026, the query returned **189,162 matching endpoints** from 15,995,023 endpoints at which all seven inputs were available. That is 1.183% of eligible endpoints and 1.148% of the 16,473,600 represented seconds. Matches occurred in 177 of 286 symbol-days; a symbol-day with matches at isolated seconds, however, is not necessarily a sustained research period.
+
+### 6.2 Grouping endpoints into periods
+
+Period construction is an optional second step, separate from the SQL selection. For this example, a period begins on a matching endpoint and may continue through fewer than 30 consecutive eligible nonmatching seconds. It ends at 30 consecutive nonmatches, unavailable data, or a session boundary. We retain only periods lasting at least 10 minutes with matching endpoints occupying at least 80% of their elapsed seconds.
+
+| Date | Represented symbol-days | Eligible endpoints | Unavailable endpoints | Matching endpoints | Retained symbol-days | Retained periods |
+|---|---:|---:|---:|---:|---:|---:|
+| June 1 | 59 | 3,308,281 | 90,119 | 40,807 | 6 | 12 |
+| June 2 | 59 | 3,347,717 | 50,683 | 45,878 | 10 | 17 |
+| June 3 | 52 | 2,928,147 | 67,053 | 32,817 | 4 | 5 |
+| June 4 | 57 | 3,173,511 | 109,689 | 26,231 | 8 | 9 |
+| June 5 | 59 | 3,237,367 | 161,033 | 43,429 | 7 | 12 |
+| **Total** | **286** | **15,995,023** | **478,577** | **189,162** | **35** | **55** |
+
+The reducer retained **55 periods across 35 of 286 symbol-days (12.2%) and 31 distinct symbols**. Among those 35 symbol-days, the median duration of the longest retained period was **14 minutes 43 seconds**; the 75th percentile was 24 minutes 44 seconds, the 90th percentile was 40 minutes 18 seconds, and the maximum was 53 minutes 10 seconds. These values summarize period availability inside this five-date query, not the frequency of comparable periods across the full release.
+
+### 6.3 Inspecting one returned period
+
+One retained `ANY` premarket period on June 1 illustrates how the grouping rule behaves:
+
+| Field | Value |
+|---|---:|
+| Period | 07:20:12–07:44:17 ET |
+| Elapsed duration | 24 minutes 5 seconds |
+| Matching endpoints | 1,347 |
+| Eligible nonmatching endpoints | 98 |
+| Matching occupancy | 93.22% |
+| Longest interruption | 25 seconds |
+
+The period qualifies because it exceeds 10 minutes, its matching occupancy exceeds 80%, and no interruption reaches the 30-second split threshold. The underlying endpoint rows remain available for feature-by-feature inspection, so a researcher can examine what caused each interruption rather than treating the retained period as homogeneous.
+
+Both endpoint selection and period grouping are retrospective. This example shows how to retrieve and organize historical feature states; it does not establish that the conditions persist after detection, can be acted on without latency or costs, or produce profitable trades. Full reducer semantics and reproducibility details are provided in the appendix.
+
+## 7. Conclusions and Current Limitations
+
+Tape Data Product V2 makes historical tape conditions explicit and reproducible. A researcher can combine movement, quoted friction, transaction activity, displayed liquidity, and freshness at one-second endpoints; retrieve the observations that satisfy those conditions; and optionally organize them into inspectable periods. The feature comparisons show why these dimensions are complementary: similar movement and transaction activity can occur with materially different spreads, and neither trade rate nor participation determines movement on its own.
+
+What the product establishes is measurement and retrieval capability—not a trading edge. The following limitations should govern any research built on this release:
+
+- **Selected population.** The population was screened for eventful two-minute intervals before full trade-and-quote processing. Frequencies in this report therefore describe the selected 5,208 symbol-days, not the US equity market as a whole.
+- **Historical selection and timing.** Full-session membership is retrospective and includes observations before the minute screen qualified. The report does not establish when a symbol would have become available to a live researcher or how much client delivery latency would have elapsed.
+- **Historical source completeness.** File integrity, schema checks, row reconciliation, and numerical validation do not independently prove that the original vendor retrieval contained every historical event. Original pagination-completion evidence is unavailable for part of the accepted historical source lineage.
+- **Dependence and composition.** Five-second returns overlap, and adjacent feature rows share exponentially weighted or fixed-window history. Stock-seconds are therefore not independent observations. Stocks, dates, and sessions contribute unequal amounts of valid time, so pooled distributions can reflect population composition as well as market behavior.
+- **Availability and halts.** Startup, insufficient coverage, invalid quote states, feed discontinuities, and recognized halts can make a feature unavailable. An unavailable value is not observed inactivity and is never converted to zero. Historical halt overlays also do not by themselves establish when the halt information was known live.
+- **Measurement scope.** Best-bid and best-ask size describe displayed top-of-book liquidity, not depth, hidden interest, queue position, or executable capacity. Quoted spread is not realized execution cost. Endpoint-midpoint movement omits subsecond paths, while participation measures the concentration of return magnitudes without preserving their signs or order.
+- **Retrieval scope.** The seven query thresholds and the period reducer are illustrative research choices. The five-date result does not establish representative period frequency, universal retrieval quality, or measured full-corpus query performance.
+- **Trading interpretation.** No predictive validity, future persistence, fill model, slippage estimate, transaction-cost analysis, or executable expectancy has been established. Those require a separate signal study with strictly timed entry information, explicit execution assumptions, costs, latency, adverse excursion, and out-of-sample evaluation.
+
+Within those limits, the product provides a usable foundation for the next research step: define a market condition independently of the strategy being tested, retrieve its historical occurrences, and then evaluate subsequent outcomes under an explicit causal clock and execution model.
+
+## Appendix A. Measurement Definitions and Behavior
+
+### A.1 Endpoint clock and eligible events
+
+Each stored row labeled `t` summarizes the half-open interval `[t−1s, t)`. An event timestamped exactly at `t` belongs to the following row, and feature histories use events strictly before the labeled endpoint. Session reporting uses America/New_York time: premarket rows end after 04:00 through 09:30, RTH rows end after 09:30 through 16:00, and after-hours rows end after 16:00 through 20:00. The row ending at 09:30 therefore summarizes the final premarket second.
+
+Activity is assigned by SIP timestamp. An otherwise eligible trade contributes only when its reporting age satisfies
+
+\[
+0 \leq t_{\mathrm{SIP}}-t_{\mathrm{participant}} \leq 1\ \mathrm{second}.
+\]
+
+Eligible condition codes are 0, 3, 14, 36, 37, 41, and 60, with code 12 additionally accepted outside RTH. Original correction payloads 0, 7, and 8 are eligible; action records, correction payload 1, and known late or ineligible reports do not contribute to count, shares, dollars, or eligible-trade freshness. Unknown eligibility makes the affected activity observation unavailable rather than zero.
+
+### A.2 Movement and derived measurements
+
+Let `m(t)` be the finite, positive midpoint of the prevailing valid quote state immediately before endpoint `t`. The supported five-second return is
+
+\[
+r_t=10{,}000\log\!\left(\frac{m(t)}{m(t-5s)}\right),
+\]
+
+in basis points. Both endpoints must be valid, and the return cannot cross a declared halt or continuity break. The one-second sequence of five-second returns overlaps; a single price jump can affect several observations.
+
+For half-life `h`, weights decay in wall-clock time as `2^{-(t-u)/h}` and are normalized over supported observations. With
+
+\[
+Q_t=\sum_u w_u r_u^2,
+\qquad
+A_t=\sum_u w_u |r_u|,
+\]
+
+the published movement, participation, and movement/spread measurements are
+
+\[
+\sigma_{5,t}=\sqrt{Q_t},
+\qquad
+P_t=\frac{A_t^2}{Q_t},
+\qquad
+X_t=\frac{\sigma_{5,t}}{S_t},
+\]
+
+where `S(t)` is the EW mean full quoted spread in basis points at the same half-life. Movement is an RMS magnitude, not a directional return or annualized volatility estimate. Participation describes whether weighted return magnitudes are broadly distributed or concentrated; it discards signs and ordering. Movement/spread is a descriptive scale comparison, not expected capturable return.
+
+Spread, trade/share/dollar rates, and bid/ask displayed sizes are exposure-weighted means. Their supported numerators and durations decay separately before division; the system does not average per-second ratios with unequal coverage. A reliably observed second with no eligible trades contributes zero activity and positive supported time. Missing time contributes no fabricated zero.
+
+### A.3 Published field names and units
+
+| Measurement | Fast field | Slow field | Unit |
+|---|---|---|---|
+| Five-second RMS movement | `midpoint_rms_5s_bps_hl30s` | `midpoint_rms_5s_bps_hl120s` | bps |
+| Movement participation | `movement_participation_hl30s` | `movement_participation_hl120s` | 0–1 |
+| Mean quoted spread | `quoted_spread_bps_hl30s` | `quoted_spread_bps_hl120s` | bps |
+| Movement/spread | `midpoint_rms_5s_to_spread_hl30s` | `midpoint_rms_5s_to_spread_hl120s` | ratio |
+| Eligible trade rate | `trade_rate_per_second_hl30s` | `trade_rate_per_second_hl120s` | trades/s |
+| Eligible share rate | `share_rate_per_second_hl30s` | `share_rate_per_second_hl120s` | shares/s |
+| Eligible dollar rate | `dollar_rate_usd_per_second_hl30s` | `dollar_rate_usd_per_second_hl120s` | USD/s |
+| Mean displayed bid size | `bid_size_mean_shares_hl30s` | `bid_size_mean_shares_hl120s` | shares |
+| Mean displayed ask size | `ask_size_mean_shares_hl30s` | `ask_size_mean_shares_hl120s` | shares |
+
+The fast and slow half-lives are 30 and 120 seconds, respectively. The corresponding initial and post-halt startup periods are 60 and 300 seconds. The report's displayed bid and ask notionals are query-time transformations—mean displayed shares multiplied by the current bid or ask—not additional stored fields.
+
+| Freshness measurement | Current field | 60-second p90 field | 300-second p90 field | Unit |
+|---|---|---|---|---|
+| Eligible trade | `trade_age_seconds` | `trade_age_p90_seconds_window60s` | `trade_age_p90_seconds_window300s` | seconds |
+| Quote message | `quote_age_seconds` | `quote_age_p90_seconds_window60s` | `quote_age_p90_seconds_window300s` | seconds |
+| Midpoint change | `midpoint_change_age_seconds` | `midpoint_change_age_p90_seconds_window60s` | `midpoint_change_age_p90_seconds_window300s` | seconds |
+
+Current ages are unsmoothed. Each p90 is the ordinary linearly interpolated 90th percentile of supported endpoint ages in its fixed trailing window; it is not exponentially weighted and is not the maximum gap. Exact age values require an observable event origin. Midpoint-change lower bounds are not admitted as exact ages.
+
+### A.4 Coverage, resets, and undefined values
+
+Feature coverage is supported weight or exposure divided by the corresponding possible wall-clock weight or exposure. The default publication requirement is 90% for quoted spread and 80% for the other EW families. Fixed age windows must be mature and contain the configured minimum number of known samples. Publication failure during startup, low coverage, no supported data, invalid current state, halt, or continuity failure is represented as an unavailable value with a reason mask.
+
+Ordinary invalid observations do not erase prior EW state: state continues to decay while unsupported time lowers coverage. A declared feed gap clears the affected event origins and prevents returns from bridging the interruption, but retained EW history can become publishable again when observation and coverage requirements recover. A recognized halt clears both EW histories and age windows; the fast and slow startup requirements begin again after reopening. State never carries across symbol-days.
+
+The following numerical cases are deliberately undefined rather than regularized:
+
+- Participation is unavailable when the supported return history is entirely zero, even though RMS movement is a valid zero.
+- Movement/spread is unavailable when spread is zero or either component is unavailable.
+- A crossed, nonfirm, or otherwise invalid spread state is unavailable; a valid locked market contributes a zero spread.
+- A bad displayed size invalidates only the affected side when price state remains usable.
+- Missing or semantically uncertain source time is unavailable, not a valid zero-activity observation.
+
+The normative schema, reason bits, and transition rules are documented in [the endpoint/EW contract](../../docs/contracts/endpoint-ew-v1.md).
+
+## Appendix B. Population and Reproducibility
+
+### B.1 Release and analysis identity
+
+The report's V2 population contains 5,208 completed symbol-days and 299,980,800 represented one-second rows across 122 dates. Every symbol-day contributes the stored 16-hour interval from 04:00 to 20:00 ET. The tracked population aggregate is bound to inventory SHA-256 `766564b167a7a8b0987b7b3ceae5a1efdad5fe4ee029912ea28b43d92c6bb3d7`. The full-release joint-distribution analysis used reference identity `a1fab9c41bb51122ad49f9976f79b125a5542d2c2d4c73c4c2b0a23684d787ea`.
+
+The saved full-release ECDF calculation identifies contract `bf4d8c1211bf096d9b0ab3b2c0d62f3858ff1da738b42aa8c3ed4cba67020bd1`, base implementation `a6cbbdba294b58629a0d72f71e9e495af731f19566620eed51f90fdf721540e5`, feature implementation `d82235bed5ddd1bd800f11876bd3dc80760283de5f25740c30a0924f2c605afb`, and release source revision `ea2e16128225a91ceb6003fcb3f6ef80985ba8e0`. These identities distinguish this endpoint/EW release from the historical V1 report and from any newly rebuilt compatible dataset.
+
+### B.2 Population and availability accounting
+
+The fast active-tape gate accounts for every represented second as follows:
+
+| Status | Seconds | Share of represented time |
+|---|---:|---:|
+| Passes fast active-tape gate | 42,704,121 | 14.24% |
+| Validly fails gate | 251,049,775 | 83.69% |
+| Gate inputs unavailable | 6,226,904 | 2.08% |
+| **Represented** | **299,980,800** | **100.00%** |
+
+Thus `represented = valid + unavailable` and `valid = pass + fail`; unavailable inputs are not counted as observed gate failures. Marginal figures use each field's own validity, pairwise figures use the validity intersection of the plotted pair, and the active-tape figures add only the relevant fast or slow gate. No universal 27-field complete-case filter is applied.
+
+The historical source is Massive.com trade and quote data retained in a private Cloudflare R2 store. R2 is storage, not the market-data source. Accepted files are identity-checked and reconciled, but the original vendor pagination completion is not independently verified for the complete historical lineage. Reacquiring the same dates would create a new source snapshot rather than prove byte-for-byte reproduction of this report.
+
+### B.3 Five-date query and period reducer
+
+The Section 6 endpoint query covers all completed members and all represented sessions from June 1 through June 5, 2026. Its seven predicates are evaluated simultaneously at each endpoint. Of 16,473,600 represented seconds, 15,995,023 have all seven inputs available, 189,162 match, and 15,805,861 validly do not match. The remaining 478,577 have at least one unavailable predicate input.
+
+The optional reducer starts a period on a matching endpoint. Fewer than 30 consecutive eligible nonmatching seconds may remain inside it; the period ends when the nonmatching run reaches 30 seconds, when an unavailable endpoint occurs, or at a session boundary. Retention then requires at least 600 elapsed seconds and matching occupancy of at least 0.80. The reducer produced 55 retained periods across 35 symbol-days and 31 symbols.
+
+The saved projected query input has SHA-256 `d9f56a80ab82c29d515d741df975c40387542062b7329cdcf2f8e163927d3e81`. Reducer revision `44fb73b8872757e16b2533a52996ad8b17fa1733` produced output SHA-256 `8c335edbe16afda89d297cd79efbab630e67228bd3edfd6023ee87f092c4110e`. The publication-safe aggregate is [strong_tape_episode_population.json](data/strong_tape_episode_population.json); detailed member-level rows remain outside the public report tree.
+
+### B.4 Example and reproduction notes
+
+The GPUS/CAST comparison was selected retrospectively to isolate a large spread difference while keeping movement, trade rate, dollar rate, and participation reasonably similar. Its fixed endpoints are GPUS at 09:52:15 ET and CAST at 10:01:52 ET on June 18, 2026. The identity-bound numerical values used by Figure 2 are retained in [gpus_cast_comparison_numerical_source.json](data/gpus_cast_comparison_numerical_source.json). The example is illustrative rather than representative and is not a trade simulation.
+
+Usable access and reproduction instructions are maintained in:
+
+- [Data access and historical-source requirements](../../docs/data-access.md)
+- [Dataset construction and report workflow](../../docs/dataset-build.md)
+- [Acquisition, screening, and canonical-pair rules](../../docs/acquisition.md)
+- [Endpoint/EW measurement contract](../../docs/contracts/endpoint-ew-v1.md)
+- [Report artifact lineage](README.md)
+
+Exact historical reproduction requires the accepted private source objects and control manifests; the repository intentionally excludes credentials, private member catalogs, detailed market-data rows, and machine-specific paths.
+
+## Appendix C. Supporting Distributions
+
+The appendix figures are completed full-release descriptive evidence. They use one valid stock-second as one observation, so highly represented stocks and dates contribute more weight than sparsely represented ones. They should not be read as independent samples or equally weighted symbol/date estimates.
+
+### C.1 Activity-gate inputs
+
+![Figure C1. Ungated distributions of the active-tape gate inputs](assets/activity_definition_ecdf.png)
+
+*Figure C1. Ungated trade-rate and trade-age-p90 distributions for the complete endpoint/EW release. Shading marks the side satisfying each individual threshold. The active-tape gate requires both conditions at the same endpoint, so the marginal threshold shares are not the combined retention rate.*
+
+### C.2 Movement and quoted friction
+
+![Figure C2. Active-tape movement and friction distributions](assets/movement_friction_ecdf.png)
+
+*Figure C2. Fast and slow active-tape distributions of five-second RMS movement, quoted spread, movement/spread, and participation, split by reporting session. Each column uses its corresponding active-tape gate and each curve uses the plotted field's own valid population.*
+
+### C.3 Throughput and displayed liquidity
+
+![Figure C3. Active-tape throughput and displayed-liquidity distributions](assets/throughput_liquidity_ecdf.png)
+
+*Figure C3. Fast and slow active-tape distributions of eligible share rate, eligible dollar rate, and mean displayed bid and ask size. Displayed sizes are stored share quantities; unlike the researcher-facing notional derivation in Section 3, these panels do not multiply by the current side price.*
+
+### C.4 Freshness
+
+![Figure C4. Active-tape freshness distributions](assets/freshness_ecdf.png)
+
+*Figure C4. Current and trailing-p90 freshness distributions for the fast and slow active-tape populations. Current ages are unsmoothed; the p90 panels use fixed 60-second and 300-second windows.*
+
+The ECDF curves are accumulated in fine bins rather than stored as raw sorted observations. Positive-valued panels use `log(1+x)` bins of width 0.0025; participation uses linear bins of width 0.001. Exact valid, unavailable, zero, and tail counts are retained in the numerical artifacts, but quantiles read from the curves or their binned summaries are approximations to raw-value ranks. Joint plots similarly show binned concentration with panel-specific normalization; individual cells are descriptive counts, not probability estimates for independent observations.
+
+Alternative activity thresholds, equally weighted symbol/date distributions, different activity-band boundaries, exact atom-level ECDFs, broader equity populations, and predictive outcome conditioning are possible sensitivity analyses. They were not run for this report and are not implied by the completed figures above.

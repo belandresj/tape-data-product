@@ -1,0 +1,27 @@
+{
+  "outputs": {
+    "daily_active_tape_hours.csv": {
+      "bytes": 11581,
+      "sha256": "f8a16764de9a2316f479a310b650610ce9bab54efb6ba5a8b58612a78cebd99c"
+    },
+    "daily_active_tape_hours.png": {
+      "bytes": 135259,
+      "sha256": "7b6420dd03a621612137ada4df0b7eb16f9e3c855a295fa39d12bc0f2d73e127"
+    },
+    "daily_active_tape_hours.svg": {
+      "bytes": 99256,
+      "sha256": "655de3f233a571ee386519ac16e594fb7fac57c59708d7495b5b22fe15b6e815"
+    },
+    "daily_active_tape_hours_summary.json": {
+      "bytes": 1216,
+      "sha256": "46289a1a2f93a0af3aeb1c7e08baf8dc9ff02122665ff7d04bc51a1674d78a51"
+    }
+  },
+  "renderer": {
+    "name": "endpoint_population.py",
+    "sha256": "e1091f584cede8f3169a37d13ea0cc8459649a348ca8a3721eca01d7651f71eb"
+  },
+  "schema": "daily_active_tape_hours_artifacts_v1",
+  "source_config_sha256": "81389968bfe57ac9d283434c65a94a1fe532fd167521c81e514a8c75b902b430",
+  "source_member_gate_accounting_sha256": "31860691a21955fb978e75269cfe246b2c24af0bfa80007aa5565f003bd8933a"
+}
