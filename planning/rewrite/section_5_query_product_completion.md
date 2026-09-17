@@ -5,10 +5,14 @@ accepted the checkpoint in the task immediately preceding checkpoint 2. The
 evidence below remains the accepted checkpoint-1 record; later sections record
 checkpoint-2 work separately.
 
-**Checkpoint 2 status: ready for owner verification.** The installed SQL and
-Python workflow and the five-date proposal below await owner acceptance. No
-checkpoint-3 query has run, no branch was pushed, and no installed current
-release or persistent dataset was replaced.
+**Checkpoint 2 status: owner accepted 2026-09-16.** The owner explicitly
+accepted the installed SQL/Python workflow, the proposed five-date population,
+and its stated resource budget before authorizing checkpoint 3. No branch was
+pushed, and no installed current release or persistent dataset was replaced.
+
+**Checkpoint 3 status: ready for owner verification.** The accepted five-date
+screen completed without threshold changes, an added activity/duration gate, or
+session filtering. The result and bounded execution evidence are recorded below.
 
 ## Checkpoint 1 evidence
 
@@ -163,17 +167,82 @@ selected members are then identity/hash/schema checked by the existing query
 opening path. No acquisition, replay, feature rebuild, upload or publication is
 authorized.
 
-## Exact next checkpoint scope
+## Checkpoint 3 evidence
 
-After owner acceptance of the dates and budget above, checkpoint 3 runs the
-seven-condition screen in `section_5_query_product.md` exactly as written over
-all 286 members and all represented sessions. It does not add a duration or
-activity gate, change the 100 bps spread ceiling, tune thresholds, or suppress
-zero-match members. It exports matching one-second observations and produces
-symbol/date/session accounting for represented, eligible, unavailable and
-matching seconds plus first/last matches, and date-level distinct matching
-symbols. It verifies every exported row against all seven predicates,
-reconciles summary counts, spot-checks stored source values, reports actual
-scan time/RSS/read/spill/output, and stops. An empty result remains a valid
-result. No plots, profitability analysis, report writing or wider-corpus run is
-part of checkpoint 3.
+The catalog was derived from the accepted 5,208-member metadata without
+opening unrelated Parquet. It contains exactly the accepted 286 members and
+16,473,600 rows for 2026-06-01 through 2026-06-05. Its identity is
+`aac38b2970a2eb1ccdaf50dd735a221031c2c5cf41e4e6b42cd0acb68d35f5b4`;
+the parent full-reference identity is
+`a1fab9c41bb51122ad49f9976f79b125a5542d2c2d4c73c4c2b0a23684d787ea`.
+The source producer remains revision
+`ea2e16128225a91ceb6003fcb3f6ef80985ba8e0` and wheel SHA-256
+`a506c2ad2fd7aabeb6d214a876f6741f303d8bc713fb34a4b6dbbc83d85cafe9`.
+
+The exact seven-condition query returned **189,162 matching one-second
+observations** from 15,995,023 eligible seconds (1.183%) and 16,473,600
+represented seconds (1.148%). The other 478,577 seconds lacked at least one
+required valid input. Matches occurred in 177 of 286 symbol-days; 109 members
+had valid zero matches. No full member had zero eligible inputs. One member
+session, 2026-06-04 QNT premarket, had no eligible inputs and is retained as
+such in the summary.
+
+| Date | Represented | Eligible | Unavailable | Matches | Matching symbols |
+|---|---:|---:|---:|---:|---:|
+| 2026-06-01 | 3,398,400 | 3,308,281 | 90,119 | 40,807 | 30 |
+| 2026-06-02 | 3,398,400 | 3,347,717 | 50,683 | 45,878 | 43 |
+| 2026-06-03 | 2,995,200 | 2,928,147 | 67,053 | 32,817 | 35 |
+| 2026-06-04 | 3,283,200 | 3,173,511 | 109,689 | 26,231 | 31 |
+| 2026-06-05 | 3,398,400 | 3,237,367 | 161,033 | 43,429 | 38 |
+
+Premarket contributed 98,322 matches, RTH 67,823 and after-hours 23,017.
+These are adjacent, overlapping-history observations, not independent signals.
+The largest symbol-day contribution was 2026-06-02 PMI with 13,652 matches
+(7.217%); the ten largest symbol-days contributed about 38.7%, so the result is
+not a single-name artifact but is materially concentrated.
+
+Every exported row was re-evaluated against all seven predicates with zero
+failures. Exported and summarized match counts agree exactly; represented rows
+equal the selected population; eligible plus unavailable equals represented;
+and seven deterministic observations spanning the result matched the stored
+feature Parquet values exactly. Focused endpoint regression verification passed
+**26 tests in 2.25 seconds**.
+
+The source projection scan took 25.9325 seconds, match export 1.0534 seconds,
+and member/session aggregation 1.1000 seconds. Input identity/schema checking
+took approximately 11.87 seconds; the heavy unit ran 39.93 seconds wall. Peak
+sampled process-tree RSS was 628,957,184 bytes. The systemd cgroup peak,
+including file cache, was 1,985,327,104 bytes. DuckDB spill was zero, peak owned
+output/scratch was 678,465,500 bytes, minimum free disk was 61,575,503,872
+bytes, verified input was 3,265,171,897 bytes, profiled DuckDB reads were
+55,620,729 bytes, and the conservative verification/read envelope was
+4,068,835,565 bytes. Every accepted budget remained satisfied.
+
+The exact SQL is stored at
+`/srv/tape-data-product/control/section5-checkpoint3-20260916/run/query.sql`.
+The 189,162-row match export is 9,179,683 bytes with SHA-256
+`86e3402849dd37241aaa1d467d63df2911fad0e263caa82438c71ce57a52284b`.
+The 858-row member/date/session summary is 8,797 bytes with SHA-256
+`5e7d898c4942b35fe4b4bfc7f52ab1c8adf73f5929b26ba2b0529f951bc25ee5`.
+The private result manifest and profiles are under
+`/srv/tape-data-product/control/section5-checkpoint3-20260916/`.
+
+The monitor initially stopped an attempt because it used cgroup memory, which
+includes file cache, instead of the specified process-tree RSS. That stop
+occurred before query output. The corrected monitor retained the 2 GiB RSS and
+3 GiB hard limits. The heavy unit later produced all final Parquet artifacts but
+exited during Python conversion of timezone-aware summary timestamps because
+the isolated release does not include optional `pytz`. A bounded 3.43-second
+finalizer cast summary timestamps to strings and verified the existing outputs;
+the source query was not rerun. Failed-attempt and corrected-monitor evidence
+are preserved beside the final profiles.
+
+The historical tape-characterization strict cohort is not the same screen. It
+used legacy 300-second mean-absolute movement, a 0.50 participation floor, an
+inclusive 100 bps spread ceiling, a $5,000/s dollar-rate floor, a movement to
+spread floor of 3, and five-pass/five-failure membership. This checkpoint uses
+new endpoint-RMS/EW definitions, the exact strict/inclusive boundaries in the
+section-five plan, freshness p90 conditions, no dollar-rate floor, and no
+duration state machine. The result is descriptive tape-state retrieval, not
+predictive evidence or executable expectancy. No plots, profitability work,
+wider-corpus run, push, publication, or installed-release change was performed.

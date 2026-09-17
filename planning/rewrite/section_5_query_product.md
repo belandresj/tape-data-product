@@ -1,6 +1,6 @@
 # SQL query product — checkpoint plan
 
-Status: checkpoint 1 ready for owner verification; checkpoints 2–3 pending. Updated 2026-09-16 after owner review. This replaces the earlier, broader section-five specification. Build query access first; plots, history-rendering tools, report writing and strict-run exports are outside this task.
+Status: checkpoints 1–2 owner accepted; checkpoint 3 ready for owner verification. Updated 2026-09-16 after the bounded five-date screen. This replaces the earlier, broader section-five specification. Build query access first; plots, history-rendering tools, report writing and strict-run exports are outside this task.
 
 ## Product
 
