@@ -77,13 +77,18 @@ def _validate_input(path):
 
 
 def _episode_sql(
-    off_delay_seconds, minimum_episode_seconds, occupancy, *, date_count=1
+    off_delay_seconds,
+    minimum_episode_seconds,
+    occupancy,
+    *,
+    date_count=1,
+    source_sql="SELECT * FROM read_parquet(?, hive_partitioning = false)",
 ):
     off_delay_ns = off_delay_seconds * 1_000_000_000
     occupancy_sql = format(occupancy, "f")
     date_parameters = ", ".join("?" for _ in range(date_count))
     return f"""
-WITH scoped AS (
+WITH ordered AS (
     SELECT
         session_date,
         symbol,
@@ -91,13 +96,32 @@ WITH scoped AS (
         interval_end_ns,
         eligible,
         matching,
-        sum((NOT eligible)::INTEGER) OVER (
+        lag(interval_end_ns) OVER (
+            PARTITION BY session_date, symbol, session
+            ORDER BY interval_end_ns
+        ) AS previous_endpoint_ns
+    FROM ({source_sql}) AS episode_source
+    WHERE session_date IN ({date_parameters})
+), scoped AS (
+    SELECT
+        session_date,
+        symbol,
+        session,
+        interval_end_ns,
+        eligible,
+        matching,
+        sum((
+            NOT eligible
+            OR (
+                previous_endpoint_ns IS NOT NULL
+                AND interval_end_ns - previous_endpoint_ns <> 1000000000
+            )
+        )::INTEGER) OVER (
             PARTITION BY session_date, symbol, session
             ORDER BY interval_end_ns
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS availability_segment
-    FROM read_parquet(?, hive_partitioning = false)
-    WHERE session_date IN ({date_parameters})
+    FROM ordered
 ), matching_rows AS (
     SELECT
         *,

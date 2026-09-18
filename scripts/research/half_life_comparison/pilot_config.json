@@ -1,0 +1,38 @@
+{
+  "availability": {
+    "main_comparison": "intersection of the ten EW inputs and two shared freshness inputs",
+    "unavailable_rows_break_periods": true
+  },
+  "episode_rule": {
+    "minimum_episode_seconds": 600,
+    "minimum_occupancy": "0.80",
+    "off_delay_seconds": 30,
+    "physical_grid_gaps_split": true,
+    "session_date_member_boundaries_split": true
+  },
+  "pilot": {
+    "end_date": "2026-06-05",
+    "start_date": "2026-06-01"
+  },
+  "screens": {
+    "30": {
+      "midpoint_rms_5s_bps_hl30s": "> 10",
+      "midpoint_rms_5s_to_spread_hl30s": "> 2",
+      "movement_participation_hl30s": ">= 0.4",
+      "quote_age_p90_seconds_window60s": "<= 2",
+      "quoted_spread_bps_hl30s": "< 100",
+      "trade_age_p90_seconds_window60s": "<= 2",
+      "trade_rate_per_second_hl30s": ">= 10"
+    },
+    "120": {
+      "midpoint_rms_5s_bps_hl120s": "> 10",
+      "midpoint_rms_5s_to_spread_hl120s": "> 2",
+      "movement_participation_hl120s": ">= 0.4",
+      "quote_age_p90_seconds_window60s": "<= 2",
+      "quoted_spread_bps_hl120s": "< 100",
+      "trade_age_p90_seconds_window60s": "<= 2",
+      "trade_rate_per_second_hl120s": ">= 10"
+    }
+  },
+  "schema": "half_life_selection_study_config_v1"
+}
