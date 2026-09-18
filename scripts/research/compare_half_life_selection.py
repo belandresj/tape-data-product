@@ -39,6 +39,55 @@ MINIMUM_EPISODE_SECONDS = 600
 MINIMUM_OCCUPANCY = Decimal("0.80")
 FREE_DISK_RESERVE_BYTES = 20 * 1024**3
 CHECKPOINT_SCHEMA = "half_life_selection_checkpoint_v1"
+OUTPUT_COLUMNS = {
+    "availability": (
+        "scope", "session_date", "symbol", "represented_seconds",
+        "both_available_seconds", "fast_only_available_seconds",
+        "slow_only_available_seconds", "neither_available_seconds",
+    ),
+    "membership": (
+        "definition", "session_date", "symbol", "member",
+        "common_eligible_seconds", "no_common_eligible_time", "classification",
+    ),
+    "membership_summary": (
+        "level", "definition", "classification", "count", "members",
+    ),
+    "stock_membership": ("definition", "symbol", "classification"),
+    "matching_endpoint_overlap": (
+        "scope", "session_date", "symbol", "fast_seconds", "slow_seconds",
+        "shared_seconds", "fast_only_seconds", "slow_only_seconds", "union_seconds",
+        "shared_over_union", "shared_over_fast", "shared_over_slow",
+    ),
+    "retained_period_overlap": (
+        "scope", "session_date", "symbol", "fast_seconds", "slow_seconds",
+        "shared_seconds", "fast_only_seconds", "slow_only_seconds", "union_seconds",
+        "shared_over_union", "shared_over_fast", "shared_over_slow",
+    ),
+    "threshold_disagreements": (
+        "direction", "record_type", "failure", "seconds", "share_of_direction",
+        "sole_failure_seconds", "direction_seconds",
+    ),
+    "filter_contribution": (
+        "view", "half_life_seconds", "condition", "field", "operator", "threshold",
+        "common_eligible_seconds", "standalone_pass_seconds", "standalone_pass_rate",
+        "baseline_matching_seconds", "removed_matching_seconds", "added_matching_seconds",
+        "retained_symbol_days", "gained_symbol_days", "lost_symbol_days",
+    ),
+    "example_stretches": (
+        "session_date", "symbol", "session", "stretch_id", "stretch_start_ns",
+        "stretch_end_ns", "seconds", "failed_movement_seconds", "failed_spread_seconds",
+        "failed_movement_to_spread_seconds", "failed_participation_seconds",
+        "failed_trade_rate_seconds", "failed_quote_freshness_seconds",
+        "failed_trade_freshness_seconds", "stretch_start_utc", "stretch_end_utc",
+        "direction",
+    ),
+    "retained_periods": (
+        "variant", "session_date", "symbol", "session", "episode_id",
+        "episode_start_ns", "episode_end_ns", "episode_start_utc", "episode_end_utc",
+        "elapsed_seconds", "matching_seconds", "eligible_nonmatching_seconds",
+        "occupancy", "maximum_nonmatching_gap_seconds",
+    ),
+}
 EXPECTED_FAST_BASELINE = {
     "eligible_endpoints": 15_995_023,
     "matching_endpoints": 189_162,
@@ -238,7 +287,16 @@ def _jsonable(value):
 
 
 def _write_records(root: Path, stem: str, records: list[dict]) -> None:
-    payload = [{key: _jsonable(value) for key, value in row.items()} for row in records]
+    columns = OUTPUT_COLUMNS.get(stem)
+    if columns is None:
+        payload = [
+            {key: _jsonable(value) for key, value in row.items()} for row in records
+        ]
+    else:
+        payload = [
+            {key: _jsonable(row[key]) for key in columns}
+            for row in records
+        ]
     (root / f"{stem}.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -927,10 +985,26 @@ def _summary_markdown(
         )
     else:
         baseline_status = "is not applicable outside the exact five-date pilot"
+    title = (
+        "# 30-second versus 120-second EW selection — bounded pilot"
+        if exact_pilot
+        else "# 30-second versus 120-second EW selection — bounded comparison"
+    )
+    description = (
+        "This is a descriptive comparison of the existing feature views for "
+        "2026-06-01 through 2026-06-05. It is not parameter optimization or a trading backtest."
+        if exact_pilot
+        else f"This is a descriptive comparison of the existing feature views for {start_date} through {end_date}. It is not parameter optimization or a trading backtest."
+    )
+    limitation = (
+        "This five-date, acquisition-selected population does not establish a preferred half-life or full-release frequency. Consecutive seconds share overlapping returns and EW history and are not independent observations."
+        if exact_pilot
+        else "This acquisition-selected population does not establish a preferred half-life or full-release frequency. Consecutive seconds share overlapping returns and EW history and are not independent observations."
+    )
     lines = [
-        "# 30-second versus 120-second EW selection — bounded comparison",
+        title,
         "",
-        f"This is a descriptive comparison of the existing feature views for {start_date} through {end_date}. It is not parameter optimization or a trading backtest.",
+        description,
         "",
         "## Universe membership",
         "",
@@ -963,7 +1037,7 @@ def _summary_markdown(
             "## Baseline and limits",
             "",
             f"The original fast-screen sanity check {baseline_status}. Exact actual and expected values are in `baseline_sanity.json`.",
-            "This acquisition-selected population does not establish a preferred half-life or full-release frequency. Consecutive seconds share overlapping returns and EW history and are not independent observations.",
+            limitation,
             "",
         ]
     )
