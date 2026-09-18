@@ -11,24 +11,17 @@ A Python/DuckDB research data product that transforms Massive U.S. equities trad
 - **Research workflow:** Query stored features with SQL through Python or the command line, optionally group matching endpoints into sustained periods, and export results to Parquet.
 - **Worked example:** An illustrative query across five trading dates identifies 55 sustained historical periods across 35 symbol-days, with documented selection and period-grouping rules.
 
-## Market-data validation summary
-
-- **SIP-time ordering:** Events are read in SIP timestamp order, with sequence numbers resolving ties within each stream. Duplicate or backward event keys are rejected, and each endpoint uses only events timestamped before it.
-- **Late and ineligible trades:** Activity and trade freshness use only reports accepted by the sale-condition and correction-code rules, with reporting delays between zero and one second. Uncertain eligibility makes the affected second’s activity unavailable.
-- **Invalid quotes:** Crossed, one-sided, nonfirm, missing or nonpositive quote prices are marked unusable. An invalid update is not replaced with an older good quote. Valid locked quotes—equal bid and ask—retain zero spread.
-- **Halts:** Every second overlapping a recognized halt is unavailable. Histories restart after reopening; fast and slow measures require 60 and 300 seconds of new startup history, respectively.
-- **Feed gaps and staleness:** Known gaps affect only the relevant trade or quote stream; returns cannot bridge quote-feed gaps. Older feature history continues to decay rather than resetting. Event ages expose staleness without assuming that silence means an outage.
-- **NULL versus zero:** An observed second with no eligible trades contributes zero activity. Missing data, insufficient history and undefined values remain NULL with a recorded reason; for example, movement divided by a zero spread is unavailable.
-- **Size units:** Quote sizes require explicit unit evidence to avoid confusing shares with round lots. Bad displayed size invalidates only the affected side, not otherwise valid prices. Fractional trade quantities are preserved.
-**Limitations:** These rules do not establish complete historical retrieval or exact client-arrival timing. The acquisition/replay path has no general price-outlier check for otherwise-valid trades or quotes.
-
 ## 1. Purpose
 
-Short-horizon signals are not equally meaningful under every market condition. A quantitative researcher may want to study a signal only when a stock has substantial recent movement, when that movement is large relative to the quoted spread, when transactions or traded dollars arrive at a sufficient rate, or when trades and quotes are recent. Tape Data Product V2 measures these characteristics once per second so that they can define an explicit research universe rather than remain informal judgments about whether a stock was “active.”
+Short-horizon signals are not equally meaningful under every market condition. A quantitative researcher may want to study a signal only when a stock has substantial recent movement, when that movement is large relative to the quoted spread, when transactions or traded dollars arrive at a sufficient rate, or when trades and quotes are recent. The database measures these characteristics once per second so that they can define an explicit research universe rather than remain informal judgments about whether a stock was “active.”
 
 This distinction matters because selecting a symbol-day after one sharp move says little about the conditions present during the rest of its session. The database lets a researcher specify the conditions of interest and retrieve the matching observations, time ranges, and symbol-days for inspection, export, or downstream signal research. Different measurements can be combined to separate superficially similar episodes—for example, comparable price movement occurring with very different quoted friction or transaction activity.
 
 The product is therefore a tool for reproducible historical selection and investigation, including research into directional strategies. Its measurements describe the tape observed at each timestamp; they do not by themselves establish that a condition will persist, predict subsequent returns, produce executable fills, or earn a profit after costs.
+
+Similar movement, different spreads. At the selected timestamps, GPUS and CAST have similar measured price movement and trading activity, but CAST has a substantially wider bid–ask spread. The database lets researchers distinguish these conditions rather than treating both stocks as simply “active.” Section 3.3 compares the measurements in detail.
+
+![Figure 2. Comparable movement and trading activity with different quoted spreads](reports/report_v2/assets/gpus_cast_quoted_spread_comparison.png)
 
 ## 2. Research Population and Timing
 
@@ -109,6 +102,17 @@ GPUS and CAST have comparable movement and transaction activity at these endpoin
 ![Figure 2. Comparable movement and trading activity with different quoted spreads](reports/report_v2/assets/gpus_cast_quoted_spread_comparison.png)
 
 *Figure 2. One-second bid and ask endpoints ending at the selected GPUS and CAST observations on June 18, 2026. Each panel is independently rebased to its first valid midpoint and uses the same y-scale.*
+
+### 3.4 Market-data validation summary
+
+- **SIP-time ordering:** Events are read in SIP timestamp order, with sequence numbers resolving ties within each stream. Duplicate or backward event keys are rejected, and each endpoint uses only events timestamped before it.
+- **Late and ineligible trades:** Activity and trade freshness use only reports accepted by the sale-condition and correction-code rules, with reporting delays between zero and one second. Uncertain eligibility makes the affected second’s activity unavailable.
+- **Invalid quotes:** Crossed, one-sided, nonfirm, missing or nonpositive quote prices are marked unusable. An invalid update is not replaced with an older good quote. Valid locked quotes—equal bid and ask—retain zero spread.
+- **Halts:** Every second overlapping a recognized halt is unavailable. Histories restart after reopening; fast and slow measures require 60 and 300 seconds of new startup history, respectively.
+- **Feed gaps and staleness:** Known gaps affect only the relevant trade or quote stream; returns cannot bridge quote-feed gaps. Older feature history continues to decay rather than resetting. Event ages expose staleness without assuming that silence means an outage.
+- **NULL versus zero:** An observed second with no eligible trades contributes zero activity. Missing data, insufficient history and undefined values remain NULL with a recorded reason; for example, movement divided by a zero spread is unavailable.
+- **Size units:** Quote sizes require explicit unit evidence to avoid confusing shares with round lots. Bad displayed size invalidates only the affected side, not otherwise valid prices. Fractional trade quantities are preserved.
+**Limitations:** These rules do not establish complete historical retrieval or exact client-arrival timing. The acquisition/replay path has no general price-outlier check for otherwise-valid trades or quotes.
 
 ## 4. Active-Tape Population
 
@@ -218,20 +222,18 @@ Both endpoint selection and period grouping are retrospective. This example show
 
 ## 7. Conclusions and Current Limitations
 
-Tape Data Product V2 makes historical tape conditions explicit and reproducible. A researcher can combine movement, quoted friction, transaction activity, displayed liquidity, and freshness at one-second endpoints; retrieve the observations that satisfy those conditions; and optionally organize them into inspectable periods. The feature comparisons show why these dimensions are complementary: similar movement and transaction activity can occur with materially different spreads, and neither trade rate nor participation determines movement on its own.
+This database lets researchers search historical U.S. equity trading by the conditions present at each second—not simply whether a stock had a large move sometime during the day. Researchers can combine recent price movement, bid–ask spread, trading activity, displayed liquidity, and trade/quote freshness, then inspect or export matching observations and sustained periods.
+The examples show why these measurements are useful together. GPUS and CAST have similar measured movement and activity at the selected timestamps, but substantially different spreads. The five-day SQL example shows how explicit conditions can identify sustained research periods: it returned 55 periods across 35 symbol-days. These examples demonstrate historical comparison and selection, not a profitable trading strategy.
 
-What the product establishes is measurement and retrieval capability—not a trading edge. The following limitations should govern any research built on this release:
+The main limitations are:
+- **Selected stocks, not the whole market:** The dataset contains stocks selected for short bursts of substantial movement and trading activity. It includes their full sessions, including time before they qualified. The results therefore describe this selected population, not the broader market or a live screening process.
+- **Historical timing, not measured live delivery:** SIP timestamps determine event ordering, but do not establish when those events reached a researcher’s application. Historical halt records also do not establish when the application would have learned about a halt.
+- **Incomplete evidence about the source data:** For some historical downloads, there is no saved record confirming that every page of trade and quote results was retrieved. Checks on the stored files cannot establish that no events were missed. The current filters also have no general check for unusual but otherwise valid trade or quote prices.
+- **Neighboring observations are not independent:** Consecutive rows reuse much of the same recent history. Stocks, dates, and sessions with more valid observations also contribute more weight to the combined distributions.
+- **Market measurements are not execution estimates:** Displayed liquidity covers only the best bid and ask, not deeper orders, hidden liquidity, or queue position. Quoted spread is not actual trading cost. Movement omits subsecond price paths, and participation describes how concentrated movement is—not its direction.
+- **The query results are illustrative:** The thresholds and period-grouping rules are example research choices. The five-day result does not establish how often similar periods occur across the full dataset or how quickly a full-dataset query would run. Alternative selection rules were not evaluated in this report.
 
-- **Selected population.** The population was screened for eventful two-minute intervals before full trade-and-quote processing. Frequencies in this report therefore describe the selected 5,208 symbol-days, not the US equity market as a whole.
-- **Historical selection and timing.** Full-session membership is retrospective and includes observations before the minute screen qualified. The report does not establish when a symbol would have become available to a live researcher or how much client delivery latency would have elapsed.
-- **Historical source completeness.** File integrity, schema checks, row reconciliation, and numerical validation do not independently prove that the original vendor retrieval contained every historical event. Original pagination-completion evidence is unavailable for part of the accepted historical source lineage.
-- **Dependence and composition.** Five-second returns overlap, and adjacent feature rows share exponentially weighted or fixed-window history. Stock-seconds are therefore not independent observations. Stocks, dates, and sessions contribute unequal amounts of valid time, so pooled distributions can reflect population composition as well as market behavior.
-- **Availability and halts.** Startup, insufficient coverage, invalid quote states, feed discontinuities, and recognized halts can make a feature unavailable. An unavailable value is not observed inactivity and is never converted to zero. Historical halt overlays also do not by themselves establish when the halt information was known live.
-- **Measurement scope.** Best-bid and best-ask size describe displayed top-of-book liquidity, not depth, hidden interest, queue position, or executable capacity. Quoted spread is not realized execution cost. Endpoint-midpoint movement omits subsecond paths, while participation measures the concentration of return magnitudes without preserving their signs or order.
-- **Retrieval scope.** The seven query thresholds and the period reducer are illustrative research choices. The five-date result does not establish representative period frequency, universal retrieval quality, or measured full-corpus query performance.
-- **Trading interpretation.** No predictive validity, future persistence, fill model, slippage estimate, transaction-cost analysis, or executable expectancy has been established. Those require a separate signal study with strictly timed entry information, explicit execution assumptions, costs, latency, adverse excursion, and out-of-sample evaluation.
-
-Within those limits, the product provides a usable foundation for the next research step: define a market condition independently of the strategy being tested, retrieve its historical occurrences, and then evaluate subsequent outcomes under an explicit causal clock and execution model.
+The database provides a defined, repeatable way to construct historical research samples. Whether those conditions predict subsequent returns—and whether a strategy could trade them profitably after costs—requires a separate study.
 
 ## Appendix A. Measurement Definitions and Behavior
 
@@ -325,7 +327,7 @@ The normative schema, reason bits, and transition rules are documented in [the e
 
 The report's V2 population contains 5,208 completed symbol-days and 299,980,800 represented one-second rows across 122 dates. Every symbol-day contributes the stored 16-hour interval from 04:00 to 20:00 ET. The tracked population aggregate is bound to inventory SHA-256 `766564b167a7a8b0987b7b3ceae5a1efdad5fe4ee029912ea28b43d92c6bb3d7`. The full-release joint-distribution analysis used reference identity `a1fab9c41bb51122ad49f9976f79b125a5542d2c2d4c73c4c2b0a23684d787ea`.
 
-The saved full-release ECDF calculation identifies contract `bf4d8c1211bf096d9b0ab3b2c0d62f3858ff1da738b42aa8c3ed4cba67020bd1`, base implementation `a6cbbdba294b58629a0d72f71e9e495af731f19566620eed51f90fdf721540e5`, feature implementation `d82235bed5ddd1bd800f11876bd3dc80760283de5f25740c30a0924f2c605afb`, and release source revision `ea2e16128225a91ceb6003fcb3f6ef80985ba8e0`. These identities distinguish this endpoint/EW release from the historical V1 report and from any newly rebuilt compatible dataset.
+The saved full-release ECDF calculation identifies contract `bf4d8c1211bf096d9b0ab3b2c0d62f3858ff1da738b42aa8c3ed4cba67020bd1`, base implementation `a6cbbdba294b58629a0d72f71e9e495af731f19566620eed51f90fdf721540e5`, feature implementation `d82235bed5ddd1bd800f11876bd3dc80760283de5f25740c30a0924f2c605afb`, and release source revision `ea2e16128225a91ceb6003fcb3f6ef80985ba8e0`. These identifiers record the data and code used to produce this report.
 
 ### B.2 Population and availability accounting
 
