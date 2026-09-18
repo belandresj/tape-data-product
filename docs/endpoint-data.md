@@ -100,8 +100,10 @@ with open_tape_database(
 ```
 
 The default DuckDB configuration uses one thread, a 256 MiB memory limit and
-no disk spill. Passing an explicit bounded `temp_directory` enables at most
-1 GiB of spill after enforcing the 20 GiB free-disk reserve.
+no disk spill. Callers may pass bounded `threads` and `memory_limit` settings.
+Passing an explicit `temp_directory` enables 1 GiB of spill by default after
+enforcing the 20 GiB free-disk reserve; `max_temp_directory_size` may override
+that bound only when an explicit temporary directory is supplied.
 
 `db.sql(...)` returns a `TapeQueryResult`. Its `arrow_batches(batch_size=4096)`
 method streams batches capped at 25,000 rows. `df()` is convenient for small

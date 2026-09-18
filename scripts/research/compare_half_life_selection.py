@@ -24,9 +24,11 @@ from typing import NamedTuple
 
 import duckdb
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from tape_data_product.query import open_tape_database
+from tape_data_product.query.endpoint_catalog import read_endpoint_query_catalog
 
 
 PILOT_START = date(2026, 6, 1)
@@ -36,7 +38,7 @@ OFF_DELAY_SECONDS = 30
 MINIMUM_EPISODE_SECONDS = 600
 MINIMUM_OCCUPANCY = Decimal("0.80")
 FREE_DISK_RESERVE_BYTES = 20 * 1024**3
-OUTPUT_SCRATCH_CAP_BYTES = 4 * 1024**3
+CHECKPOINT_SCHEMA = "half_life_selection_checkpoint_v1"
 EXPECTED_FAST_BASELINE = {
     "eligible_endpoints": 15_995_023,
     "matching_endpoints": 189_162,
@@ -100,6 +102,15 @@ def _all_pass(half_life: int, *, omit: str | None = None) -> str:
     return " AND ".join(predicates) if predicates else "TRUE"
 
 
+def _pass_all(label: str, *, omit: str | None = None) -> str:
+    predicates = [
+        f"{label}_pass_{condition.key}"
+        for condition in CONDITIONS
+        if condition.key != omit
+    ]
+    return " AND ".join(predicates) if predicates else "TRUE"
+
+
 def _parse_date(value: str, label: str) -> date:
     try:
         return date.fromisoformat(value)
@@ -131,7 +142,10 @@ def _arguments(argv=None):
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--allow-expanded-scope", action="store_true")
     parser.add_argument("--batch-size", type=int, default=4096)
-    parser.add_argument("--memory-limit", default="512MiB")
+    parser.add_argument("--memory-limit", default="4GiB")
+    parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--temp-directory", type=Path)
+    parser.add_argument("--max-temp-directory-size", default="8GiB")
     return parser.parse_args(argv)
 
 
@@ -150,6 +164,10 @@ def _require_product_arguments(args) -> None:
         raise ValueError("missing required product configuration: " + ", ".join(missing))
     if not 1 <= args.batch_size <= 25_000:
         raise ValueError("batch size must be in 1..25000")
+    if not 1 <= args.threads <= 8:
+        raise ValueError("analysis threads must be in 1..8")
+    if not isinstance(args.max_temp_directory_size, str) or not args.max_temp_directory_size:
+        raise ValueError("max temp directory size must be a nonempty DuckDB size string")
 
 
 def _load_projection_sql() -> str:
@@ -168,6 +186,20 @@ def _load_reducer():
 def _write_projection_results(results, path: Path, batch_size: int) -> tuple[int, int]:
     writer = None
     rows = 0
+    buffered = []
+    buffered_rows = 0
+    target_row_group_rows = max(65_536, batch_size)
+
+    def flush():
+        nonlocal buffered, buffered_rows
+        if not buffered:
+            return
+        writer.write_table(
+            pa.Table.from_batches(buffered), row_group_size=target_row_group_rows
+        )
+        buffered = []
+        buffered_rows = 0
+
     try:
         for result in results:
             for batch in result.arrow_batches(batch_size=batch_size):
@@ -175,10 +207,14 @@ def _write_projection_results(results, path: Path, batch_size: int) -> tuple[int
                     writer = pq.ParquetWriter(path, batch.schema, compression="zstd")
                 elif not batch.schema.equals(writer.schema):
                     raise ValueError("member projections returned inconsistent schemas")
-                writer.write_batch(batch)
+                buffered.append(batch)
+                buffered_rows += batch.num_rows
                 rows += batch.num_rows
+                if buffered_rows >= target_row_group_rows:
+                    flush()
     finally:
         if writer is not None:
+            flush()
             writer.close()
     if writer is None:
         raise ValueError("bounded query returned no represented rows")
@@ -233,21 +269,20 @@ def _create_views(connection, projection: Path) -> None:
             )
     connection.execute(
         f"""
-        CREATE TEMP VIEW projected AS
-        SELECT * FROM read_parquet('{projection_literal}', hive_partitioning=false);
-        CREATE TEMP VIEW condition_rows AS
-        SELECT *,
+        CREATE TEMP TABLE evaluated AS
+        WITH condition_rows AS (
+        SELECT session_date, symbol, session, interval_end_ns,
                {fast_available} AS fast_available,
                {slow_available} AS slow_available,
                {', '.join(condition_columns)}
-        FROM projected;
-        CREATE TEMP VIEW evaluated AS
+        FROM read_parquet('{projection_literal}', hive_partitioning=false)
+        )
         SELECT *,
                fast_available AND slow_available AS common_eligible,
-               coalesce(fast_available AND ({_all_pass(30)}), false) AS fast_own_match,
-               coalesce(fast_available AND slow_available AND ({_all_pass(30)}), false)
+               coalesce(fast_available AND ({_pass_all('fast')}), false) AS fast_own_match,
+               coalesce(fast_available AND slow_available AND ({_pass_all('fast')}), false)
                    AS fast_match,
-               coalesce(fast_available AND slow_available AND ({_all_pass(120)}), false)
+               coalesce(fast_available AND slow_available AND ({_pass_all('slow')}), false)
                    AS slow_match
         FROM condition_rows;
         """
@@ -371,54 +406,134 @@ def _stock_membership(membership: list[dict]) -> list[dict]:
     return records
 
 
-def _episode_table(
-    connection,
-    reducer,
-    projection: Path,
-    dates: tuple[str, ...],
-    eligible_sql: str,
-    matching_sql: str,
-) -> pa.Table:
-    source_sql = f"""
-        SELECT session_date, symbol, session, interval_end_ns,
-               ({eligible_sql}) AS eligible,
-               coalesce(({matching_sql}), false) AS matching
-        FROM evaluated
-    """
-    # The reusable reducer SQL owns gap, boundary, trimming, duration, and occupancy semantics.
-    sql = reducer._episode_sql(
-        OFF_DELAY_SECONDS,
-        MINIMUM_EPISODE_SECONDS,
-        MINIMUM_OCCUPANCY,
-        date_count=len(dates),
-        source_sql=source_sql,
-    )
-    return connection.execute(sql, list(dates)).to_arrow_table()
+def _variant_matches() -> list[tuple[str, str, str]]:
+    variants = [("fast_own_baseline", "fast_segment", "fast_own_match")]
+    for half_life, label in ((30, "fast"), (120, "slow")):
+        variants.append((label, "common_segment", f"{label}_match"))
+        variants.extend(
+            (
+                f"{label}_without_{condition.key}",
+                "common_segment",
+                f"common_eligible AND ({_pass_all(label, omit=condition.key)})",
+            )
+            for condition in CONDITIONS
+        )
+    return variants
 
 
 def _period_variants(connection, reducer, projection: Path, dates: tuple[str, ...]):
-    tables: dict[str, pa.Table] = {}
-    tables["fast_own_baseline"] = _episode_table(
-        connection, reducer, projection, dates, "fast_available", "fast_own_match"
-    )
-    for half_life, label in ((30, "fast"), (120, "slow")):
-        tables[label] = _episode_table(
-            connection,
-            reducer,
-            projection,
-            dates,
-            "common_eligible",
-            f"{label}_match",
+    """Reduce all 17 baseline/removal variants in one vectorized query plan."""
+    del reducer, projection
+    variants = _variant_matches()
+    variant_items = ",\n".join(
+        "CASE WHEN ({matching}) THEN struct_pack("
+        "variant := '{variant}', availability_segment := {segment}) END".format(
+            matching=matching,
+            variant=variant.replace("'", "''"),
+            segment=segment,
         )
-        for condition in CONDITIONS:
-            tables[f"{label}_without_{condition.key}"] = _episode_table(
-                connection,
-                reducer,
-                projection,
-                dates,
-                "common_eligible",
-                f"common_eligible AND ({_all_pass(half_life, omit=condition.key)})",
-            )
+        for variant, segment, matching in variants
+    )
+    date_parameters = ", ".join("?" for _ in dates)
+    off_delay_ns = OFF_DELAY_SECONDS * 1_000_000_000
+    occupancy_sql = format(MINIMUM_OCCUPANCY, "f")
+    sql = f"""
+    WITH ordered AS (
+        SELECT *, lag(interval_end_ns) OVER member_window AS previous_endpoint_ns
+        FROM evaluated
+        WHERE session_date IN ({date_parameters})
+        WINDOW member_window AS (
+            PARTITION BY session_date, symbol, session ORDER BY interval_end_ns
+        )
+    ), segmented AS (
+        SELECT *,
+               sum((NOT fast_available OR (previous_endpoint_ns IS NOT NULL AND
+                    interval_end_ns - previous_endpoint_ns <> 1000000000))::INTEGER)
+                   OVER member_rows AS fast_segment,
+               sum((NOT common_eligible OR (previous_endpoint_ns IS NOT NULL AND
+                    interval_end_ns - previous_endpoint_ns <> 1000000000))::INTEGER)
+                   OVER member_rows AS common_segment
+        FROM ordered
+        WINDOW member_rows AS (
+            PARTITION BY session_date, symbol, session ORDER BY interval_end_ns
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+    ), matching_rows AS (
+        SELECT session_date, symbol, session, interval_end_ns,
+               item.variant AS variant,
+               item.availability_segment AS availability_segment
+        FROM segmented
+        CROSS JOIN unnest([{variant_items}]) AS expanded(item)
+        WHERE item IS NOT NULL
+    ), with_previous AS (
+        SELECT *, lag(interval_end_ns) OVER variant_window AS previous_match_ns
+        FROM matching_rows
+        WINDOW variant_window AS (
+            PARTITION BY variant, session_date, symbol, session, availability_segment
+            ORDER BY interval_end_ns
+        )
+    ), marked AS (
+        SELECT *,
+               CASE WHEN previous_match_ns IS NULL
+                          OR interval_end_ns - previous_match_ns > {off_delay_ns}
+                    THEN 1 ELSE 0 END AS new_episode,
+               CASE WHEN previous_match_ns IS NULL
+                          OR interval_end_ns - previous_match_ns > {off_delay_ns}
+                    THEN 0
+                    ELSE CAST((interval_end_ns - previous_match_ns) / 1000000000 AS BIGINT) - 1
+               END AS preceding_nonmatching_gap_seconds
+        FROM with_previous
+    ), assigned AS (
+        SELECT *, sum(new_episode) OVER variant_rows AS episode_group
+        FROM marked
+        WINDOW variant_rows AS (
+            PARTITION BY variant, session_date, symbol, session, availability_segment
+            ORDER BY interval_end_ns ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+    ), aggregated AS (
+        SELECT variant, session_date, symbol, session, availability_segment, episode_group,
+               min(interval_end_ns) AS first_matching_endpoint_ns,
+               max(interval_end_ns) AS last_matching_endpoint_ns,
+               count(*)::BIGINT AS matching_seconds,
+               max(preceding_nonmatching_gap_seconds)::BIGINT
+                   AS maximum_nonmatching_gap_seconds
+        FROM assigned
+        GROUP BY variant, session_date, symbol, session, availability_segment, episode_group
+    ), measured AS (
+        SELECT *, first_matching_endpoint_ns - 1000000000 AS episode_start_ns,
+               last_matching_endpoint_ns AS episode_end_ns,
+               CAST((last_matching_endpoint_ns - first_matching_endpoint_ns) /
+                    1000000000 + 1 AS BIGINT) AS elapsed_seconds
+        FROM aggregated
+    ), retained AS (
+        SELECT *, elapsed_seconds - matching_seconds AS eligible_nonmatching_seconds,
+               matching_seconds::DOUBLE / elapsed_seconds AS occupancy
+        FROM measured
+        WHERE elapsed_seconds >= {MINIMUM_EPISODE_SECONDS}
+          AND matching_seconds::DECIMAL / elapsed_seconds >= {occupancy_sql}
+    ), numbered AS (
+        SELECT *, row_number() OVER (
+            PARTITION BY variant, session_date, symbol, session ORDER BY episode_start_ns
+        ) AS episode_id
+        FROM retained
+    )
+    SELECT variant, session_date, symbol, session, episode_id,
+           episode_start_ns, episode_end_ns,
+           CAST(make_timestamp_ns(episode_start_ns) AT TIME ZONE 'UTC' AS VARCHAR)
+               AS episode_start_utc,
+           CAST(make_timestamp_ns(episode_end_ns) AT TIME ZONE 'UTC' AS VARCHAR)
+               AS episode_end_utc,
+           elapsed_seconds, matching_seconds, eligible_nonmatching_seconds,
+           occupancy, maximum_nonmatching_gap_seconds
+    FROM numbered
+    ORDER BY variant, session_date, symbol, session, episode_start_ns
+    """
+    combined = connection.execute(sql, list(dates)).to_arrow_table()
+    variant_column = combined.column("variant")
+    tables = {}
+    for variant, _, _ in variants:
+        filtered = combined.filter(pc.equal(variant_column, variant))
+        tables[variant] = filtered.drop(["variant"])
     return tables
 
 
@@ -520,7 +635,9 @@ def _period_overlap_records(tables: dict[str, pa.Table], members: list[tuple[str
     return records
 
 
-def _threshold_disagreements(connection) -> list[dict]:
+def _threshold_disagreements(
+    connection, *, all_failure_combinations: bool = False
+) -> list[dict]:
     records = []
     for direction, source_label, failed_label in (
         ("fast_pass_slow_fail", "fast", "slow"),
@@ -528,15 +645,23 @@ def _threshold_disagreements(connection) -> list[dict]:
     ):
         where = f"{source_label}_match AND NOT {failed_label}_match"
         failures = [f"NOT {failed_label}_pass_{condition.key}" for condition in CONDITIONS]
-        denominator = connection.execute(f"SELECT count(*) FROM evaluated WHERE {where}").fetchone()[0]
+        failure_total = " + ".join(f"({item})::INTEGER" for item in failures)
+        aggregates = ["count(*)::BIGINT AS denominator"]
         for condition, failure in zip(CONDITIONS, failures):
-            count = connection.execute(
-                f"SELECT count(*) FROM evaluated WHERE {where} AND {failure}"
-            ).fetchone()[0]
-            sole = connection.execute(
-                f"SELECT count(*) FROM evaluated WHERE {where} AND {failure} "
-                f"AND ({' + '.join(f'({item})::INTEGER' for item in failures)}) = 1"
-            ).fetchone()[0]
+            aggregates.extend(
+                (
+                    f"count(*) FILTER (WHERE {failure})::BIGINT AS {condition.key}_count",
+                    f"count(*) FILTER (WHERE {failure} AND ({failure_total}) = 1)::BIGINT "
+                    f"AS {condition.key}_sole",
+                )
+            )
+        aggregate = connection.execute(
+            f"SELECT {', '.join(aggregates)} FROM evaluated WHERE {where}"
+        ).fetchone()
+        denominator = aggregate[0]
+        for index, condition in enumerate(CONDITIONS):
+            count = aggregate[1 + index * 2]
+            sole = aggregate[2 + index * 2]
             records.append(
                 {
                     "direction": direction,
@@ -552,13 +677,14 @@ def _threshold_disagreements(connection) -> list[dict]:
             f"CASE WHEN {failure} THEN '{condition.key},' ELSE '' END"
             for condition, failure in zip(CONDITIONS, failures)
         ]
+        limit_sql = "" if all_failure_combinations else "LIMIT 20"
         combos = _rows(
             connection,
             f"""
             SELECT rtrim({' || '.join(combo_parts)}, ',') AS failure,
                    count(*)::BIGINT AS seconds
             FROM evaluated WHERE {where}
-            GROUP BY failure ORDER BY seconds DESC, failure LIMIT 20
+            GROUP BY failure ORDER BY seconds DESC, failure {limit_sql}
             """,
         )
         for combo in combos:
@@ -636,26 +762,37 @@ def _example_stretches(connection) -> list[dict]:
 
 def _filter_contribution(connection, tables: dict[str, pa.Table]) -> list[dict]:
     records = []
-    common = connection.execute(
-        "SELECT count(*) FROM evaluated WHERE common_eligible"
-    ).fetchone()[0]
+    expressions = ["count(*) FILTER (WHERE common_eligible)::BIGINT AS common"]
     for half_life, label in ((30, "fast"), (120, "slow")):
-        baseline_matches = connection.execute(
-            f"SELECT count(*) FROM evaluated WHERE {label}_match"
-        ).fetchone()[0]
+        expressions.append(
+            f"count(*) FILTER (WHERE {label}_match)::BIGINT AS {label}_baseline"
+        )
+        for condition in CONDITIONS:
+            expressions.extend(
+                (
+                    f"count(*) FILTER (WHERE common_eligible AND "
+                    f"{label}_pass_{condition.key})::BIGINT "
+                    f"AS {label}_{condition.key}_standalone",
+                    f"count(*) FILTER (WHERE common_eligible AND "
+                    f"({_pass_all(label, omit=condition.key)}))::BIGINT "
+                    f"AS {label}_{condition.key}_removed",
+                )
+            )
+    aggregate = connection.execute(
+        f"SELECT {', '.join(expressions)} FROM evaluated"
+    ).fetchone()
+    names = [expression.rsplit(" AS ", 1)[1] for expression in expressions]
+    values = dict(zip(names, aggregate))
+    common = values["common"]
+    for half_life, label in ((30, "fast"), (120, "slow")):
+        baseline_matches = values[f"{label}_baseline"]
         baseline_members = {
             (str(row["session_date"]), row["symbol"])
             for row in tables[label].to_pylist()
         }
         for condition in CONDITIONS:
-            standalone = connection.execute(
-                f"SELECT count(*) FROM evaluated WHERE common_eligible "
-                f"AND ({_predicate(condition, half_life)})"
-            ).fetchone()[0]
-            removed_matches = connection.execute(
-                f"SELECT count(*) FROM evaluated WHERE common_eligible "
-                f"AND ({_all_pass(half_life, omit=condition.key)})"
-            ).fetchone()[0]
+            standalone = values[f"{label}_{condition.key}_standalone"]
+            removed_matches = values[f"{label}_{condition.key}_removed"]
             variant = f"{label}_without_{condition.key}"
             variant_members = {
                 (str(row["session_date"]), row["symbol"])
@@ -760,6 +897,8 @@ def _summary_markdown(
     contributions,
     availability,
     baseline,
+    start_date=PILOT_START.isoformat(),
+    end_date=PILOT_END.isoformat(),
 ) -> str:
     def summary_count(definition, classification):
         return next(
@@ -779,11 +918,19 @@ def _summary_markdown(
         reverse=True,
     )[:4]
     additions = sorted(contributions, key=lambda row: row["added_matching_seconds"], reverse=True)[:4]
-    baseline_status = "matched all six published counts" if baseline["matches_expected"] else "DID NOT match all six published counts"
+    exact_pilot = baseline["expected"] is not None
+    if exact_pilot:
+        baseline_status = (
+            "matched all six published counts"
+            if baseline["matches_expected"]
+            else "DID NOT match all six published counts"
+        )
+    else:
+        baseline_status = "is not applicable outside the exact five-date pilot"
     lines = [
-        "# 30-second versus 120-second EW selection — bounded pilot",
+        "# 30-second versus 120-second EW selection — bounded comparison",
         "",
-        "This is a descriptive comparison of the existing feature views for 2026-06-01 through 2026-06-05. It is not parameter optimization or a trading backtest.",
+        f"This is a descriptive comparison of the existing feature views for {start_date} through {end_date}. It is not parameter optimization or a trading backtest.",
         "",
         "## Universe membership",
         "",
@@ -793,7 +940,7 @@ def _summary_markdown(
         "",
         "## Time overlap",
         "",
-        f"Matching endpoints: fast {endpoint['fast_seconds']:,}s, slow {endpoint['slow_seconds']:,}s, shared {endpoint['shared_seconds']:,}s, union {endpoint['union_seconds']:,}s; shared/union = {endpoint['shared_over_union'] if endpoint['shared_over_union'] is not None else 'undefined'}.",
+        f"Matching endpoints: fast {int(endpoint['fast_seconds']):,}s, slow {int(endpoint['slow_seconds']):,}s, shared {int(endpoint['shared_seconds']):,}s, union {int(endpoint['union_seconds']):,}s; shared/union = {endpoint['shared_over_union'] if endpoint['shared_over_union'] is not None else 'undefined'}.",
         f"Retained-period coverage: fast {period['fast_seconds']:,}s, slow {period['slow_seconds']:,}s, shared {period['shared_seconds']:,}s, union {period['union_seconds']:,}s; shared/union = {period['shared_over_union'] if period['shared_over_union'] is not None else 'undefined'}.",
         "",
         "## Main disagreement and contribution diagnostics",
@@ -816,7 +963,7 @@ def _summary_markdown(
             "## Baseline and limits",
             "",
             f"The original fast-screen sanity check {baseline_status}. Exact actual and expected values are in `baseline_sanity.json`.",
-            "This five-date, acquisition-selected population does not establish a preferred half-life or full-release frequency. Consecutive seconds share overlapping returns and EW history and are not independent observations.",
+            "This acquisition-selected population does not establish a preferred half-life or full-release frequency. Consecutive seconds share overlapping returns and EW history and are not independent observations.",
             "",
         ]
     )
@@ -829,15 +976,32 @@ def _analyze_projection(
     dates: tuple[str, ...],
     *,
     memory_limit: str,
+    threads: int = 1,
+    temp_directory: Path | None = None,
+    max_temp_directory_size: str = "0B",
+    all_failure_combinations: bool = False,
 ) -> dict:
     reducer = _load_reducer()
+    config = {
+        "threads": str(threads),
+        "memory_limit": memory_limit,
+        "max_temp_directory_size": max_temp_directory_size,
+    }
+    if temp_directory is not None:
+        temp_directory.mkdir(parents=True, exist_ok=True)
+        config["temp_directory"] = str(temp_directory.resolve())
     connection = duckdb.connect(
         ":memory:",
-        config={"threads": "1", "memory_limit": memory_limit, "max_temp_directory_size": "0B"},
+        config=config,
     )
     try:
+        materialize_started = time.perf_counter()
         _create_views(connection, projection)
+        materialize_seconds = time.perf_counter() - materialize_started
+        period_started = time.perf_counter()
         periods = _period_variants(connection, reducer, projection, dates)
+        period_seconds = time.perf_counter() - period_started
+        aggregate_started = time.perf_counter()
         availability = _availability_records(connection)
         endpoint_overlap = _endpoint_overlap_records(connection)
         member_keys = [
@@ -854,7 +1018,9 @@ def _analyze_projection(
         stocks = _stock_membership(membership)
         membership_summary = _membership_summary(membership, stocks)
         period_overlap = _period_overlap_records(periods, member_keys)
-        disagreements = _threshold_disagreements(connection)
+        disagreements = _threshold_disagreements(
+            connection, all_failure_combinations=all_failure_combinations
+        )
         freshness_failures = sum(
             row["seconds"]
             for row in disagreements
@@ -870,7 +1036,9 @@ def _analyze_projection(
             periods["fast_own_baseline"],
             dates == PILOT_DATES,
         )
+        aggregate_seconds = time.perf_counter() - aggregate_started
 
+        writing_started = time.perf_counter()
         _write_records(output, "availability", availability)
         _write_records(output, "membership", membership)
         _write_records(output, "membership_summary", membership_summary)
@@ -893,16 +1061,372 @@ def _analyze_projection(
                 contributions,
                 availability,
                 baseline,
+                dates[0],
+                dates[-1],
             ),
             encoding="utf-8",
         )
+        writing_seconds = time.perf_counter() - writing_started
         return {
             "represented_members": len(member_keys),
             "represented_rows": connection.execute("SELECT count(*) FROM evaluated").fetchone()[0],
             "baseline": baseline,
+            "phase_seconds": {
+                "condition_materialization": materialize_seconds,
+                "period_reduction": period_seconds,
+                "aggregate_statistics": aggregate_seconds,
+                "output_writing": writing_seconds,
+            },
         }
     finally:
         connection.close()
+
+
+def _read_records(root: Path, stem: str) -> list[dict]:
+    return json.loads((root / f"{stem}.json").read_text(encoding="utf-8"))
+
+
+def _rollup_member_records(records: list[dict], value_fields: tuple[str, ...]) -> list[dict]:
+    members = [dict(row) for row in records if row["scope"] == "member"]
+    string_fields = {
+        field
+        for field in value_fields
+        if any(isinstance(row[field], str) for row in members)
+    }
+    dates = sorted({row["session_date"] for row in members})
+    output = list(members)
+    for scope, session_date in [*(('date', value) for value in dates), ('overall', None)]:
+        selected = [
+            row for row in members
+            if session_date is None or row["session_date"] == session_date
+        ]
+        output.append(
+            {
+                "scope": scope,
+                "session_date": session_date,
+                "symbol": None,
+                **{
+                    field: (
+                        str(sum(int(row[field]) for row in selected))
+                        if field in string_fields
+                        else sum(row[field] for row in selected)
+                    )
+                    for field in value_fields
+                },
+            }
+        )
+    return sorted(
+        output,
+        key=lambda row: (
+            row["scope"],
+            row["session_date"] or "",
+            row["symbol"] or "",
+        ),
+    )
+
+
+def _add_overlap_ratios(records: list[dict]) -> list[dict]:
+    for row in records:
+        shared = int(row["shared_seconds"])
+        union = int(row["union_seconds"])
+        fast = int(row["fast_seconds"])
+        slow = int(row["slow_seconds"])
+        row["shared_over_union"] = (
+            shared / union if union else None
+        )
+        row["shared_over_fast"] = (
+            shared / fast if fast else None
+        )
+        row["shared_over_slow"] = (
+            shared / slow if slow else None
+        )
+    return records
+
+
+def _tables_from_period_records(records: list[dict]) -> dict[str, pa.Table]:
+    tables = {}
+    for variant, _, _ in _variant_matches():
+        tables[variant] = pa.Table.from_pylist(
+            [{key: value for key, value in row.items() if key != "variant"}
+             for row in records if row["variant"] == variant]
+        )
+    return tables
+
+
+def _merge_disagreements(chunks: list[list[dict]]) -> list[dict]:
+    directions = ("fast_pass_slow_fail", "slow_pass_fast_fail")
+    totals = {direction: 0 for direction in directions}
+    counts: dict[tuple[str, str, str], int] = {}
+    sole: dict[tuple[str, str, str], int] = {}
+    for rows in chunks:
+        for direction in directions:
+            direction_rows = [row for row in rows if row["direction"] == direction]
+            if direction_rows:
+                totals[direction] += direction_rows[0]["direction_seconds"]
+        for row in rows:
+            key = (row["direction"], row["record_type"], row["failure"])
+            counts[key] = counts.get(key, 0) + row["seconds"]
+            if row["record_type"] == "condition":
+                sole[key] = sole.get(key, 0) + row["sole_failure_seconds"]
+    output = []
+    for direction in directions:
+        denominator = totals[direction]
+        for condition in CONDITIONS:
+            key = (direction, "condition", condition.key)
+            seconds = counts.get(key, 0)
+            output.append(
+                {
+                    "direction": direction,
+                    "record_type": "condition",
+                    "failure": condition.key,
+                    "seconds": seconds,
+                    "share_of_direction": seconds / denominator if denominator else None,
+                    "sole_failure_seconds": sole.get(key, 0),
+                    "direction_seconds": denominator,
+                }
+            )
+        combinations = sorted(
+            (
+                (failure, seconds)
+                for (item_direction, record_type, failure), seconds in counts.items()
+                if item_direction == direction and record_type == "combination"
+            ),
+            key=lambda item: (-item[1], item[0]),
+        )[:20]
+        output.extend(
+            {
+                "direction": direction,
+                "record_type": "combination",
+                "failure": failure,
+                "seconds": seconds,
+                "share_of_direction": seconds / denominator if denominator else None,
+                "sole_failure_seconds": None,
+                "direction_seconds": denominator,
+            }
+            for failure, seconds in combinations
+        )
+    return output
+
+
+def _merge_contributions(chunks: list[list[dict]]) -> list[dict]:
+    output = []
+    for half_life, label in ((30, "fast"), (120, "slow")):
+        for condition in CONDITIONS:
+            selected = [
+                row for rows in chunks for row in rows
+                if row["view"] == label and row["condition"] == condition.key
+            ]
+            common = sum(row["common_eligible_seconds"] for row in selected)
+            standalone = sum(row["standalone_pass_seconds"] for row in selected)
+            baseline = sum(row["baseline_matching_seconds"] for row in selected)
+            removed = sum(row["removed_matching_seconds"] for row in selected)
+            output.append(
+                {
+                    "view": label,
+                    "half_life_seconds": half_life,
+                    "condition": condition.key,
+                    "field": condition.column(half_life),
+                    "operator": condition.operator,
+                    "threshold": condition.threshold,
+                    "common_eligible_seconds": common,
+                    "standalone_pass_seconds": standalone,
+                    "standalone_pass_rate": standalone / common if common else None,
+                    "baseline_matching_seconds": baseline,
+                    "removed_matching_seconds": removed,
+                    "added_matching_seconds": removed - baseline,
+                    "retained_symbol_days": sum(row["retained_symbol_days"] for row in selected),
+                    "gained_symbol_days": sum(row["gained_symbol_days"] for row in selected),
+                    "lost_symbol_days": sum(row["lost_symbol_days"] for row in selected),
+                }
+            )
+    return output
+
+
+def _merge_examples(chunks: list[list[dict]]) -> list[dict]:
+    output = []
+    for direction in ("fast_only", "slow_only"):
+        selected = [
+            row for rows in chunks for row in rows if row["direction"] == direction
+        ]
+        output.extend(
+            sorted(
+                selected,
+                key=lambda row: (
+                    -row["seconds"],
+                    row["session_date"],
+                    row["symbol"],
+                    row["stretch_start_ns"],
+                ),
+            )[:3]
+        )
+    return output
+
+
+def _implementation_identity() -> str:
+    digest = hashlib.sha256()
+    for path in (
+        Path(__file__).resolve(),
+        Path(__file__).with_name("half_life_comparison") / "projection.sql",
+        Path(__file__).with_name("half_life_comparison") / "pilot_config.json",
+        Path(__file__).with_name("select_structured_tape_episodes.py"),
+    ):
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _checkpoint_artifacts(root: Path) -> list[dict]:
+    return [
+        {"path": path.name, "bytes": path.stat().st_size, "sha256": _sha256(path)}
+        for path in sorted(root.iterdir())
+        if path.is_file() and path.name != "checkpoint.json"
+    ]
+
+
+def _valid_checkpoint(root: Path, expected: dict) -> bool:
+    manifest_path = root / "checkpoint.json"
+    if not manifest_path.is_file():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    for key, value in expected.items():
+        if manifest.get(key) != value:
+            return False
+    for artifact in manifest.get("artifacts", []):
+        path = root / artifact["path"]
+        if (
+            not path.is_file()
+            or path.stat().st_size != artifact["bytes"]
+            or _sha256(path) != artifact["sha256"]
+        ):
+            return False
+    return bool(manifest.get("artifacts"))
+
+
+def _merge_chunk_outputs(
+    chunk_roots: list[Path], output: Path, dates: tuple[str, ...]
+) -> dict:
+    availability_chunks = [_read_records(root, "availability") for root in chunk_roots]
+    availability = _rollup_member_records(
+        [row for rows in availability_chunks for row in rows],
+        (
+            "represented_seconds",
+            "both_available_seconds",
+            "fast_only_available_seconds",
+            "slow_only_available_seconds",
+            "neither_available_seconds",
+        ),
+    )
+    endpoint_chunks = [_read_records(root, "matching_endpoint_overlap") for root in chunk_roots]
+    endpoint_overlap = _add_overlap_ratios(
+        _rollup_member_records(
+            [row for rows in endpoint_chunks for row in rows],
+            (
+                "fast_seconds",
+                "slow_seconds",
+                "shared_seconds",
+                "fast_only_seconds",
+                "slow_only_seconds",
+                "union_seconds",
+            ),
+        )
+    )
+    membership = [
+        row for root in chunk_roots for row in _read_records(root, "membership")
+    ]
+    period_records = [
+        row for root in chunk_roots for row in _read_records(root, "retained_periods")
+    ]
+    variant_order = {variant: index for index, (variant, _, _) in enumerate(_variant_matches())}
+    period_records.sort(
+        key=lambda row: (
+            variant_order[row["variant"]],
+            row["session_date"],
+            row["symbol"],
+            row["session"],
+            row["episode_start_ns"],
+        )
+    )
+    period_tables = _tables_from_period_records(period_records)
+    members = sorted(
+        {
+            (row["session_date"], row["symbol"])
+            for row in membership if row["definition"] == "matching_second"
+        }
+    )
+    stocks = _stock_membership(membership)
+    membership_summary = _membership_summary(membership, stocks)
+    period_overlap = _period_overlap_records(period_tables, members)
+    disagreement_chunks = [
+        _read_records(root, "threshold_disagreements") for root in chunk_roots
+    ]
+    disagreements = _merge_disagreements(disagreement_chunks)
+    contributions = _merge_contributions(
+        [_read_records(root, "filter_contribution") for root in chunk_roots]
+    )
+    examples = _merge_examples(
+        [_read_records(root, "example_stretches") for root in chunk_roots]
+    )
+    chunk_baselines = [
+        json.loads((root / "baseline_sanity.json").read_text(encoding="utf-8"))["actual"]
+        for root in chunk_roots
+    ]
+    fast_own_periods = [
+        row for row in period_records if row["variant"] == "fast_own_baseline"
+    ]
+    actual_baseline = {
+        "eligible_endpoints": sum(row["eligible_endpoints"] for row in chunk_baselines),
+        "matching_endpoints": sum(row["matching_endpoints"] for row in chunk_baselines),
+        "symbol_days_with_match": sum(
+            row["symbol_days_with_match"] for row in chunk_baselines
+        ),
+        "retained_periods": len(fast_own_periods),
+        "retained_symbol_days": len(
+            {(row["session_date"], row["symbol"]) for row in fast_own_periods}
+        ),
+        "retained_symbols": len({row["symbol"] for row in fast_own_periods}),
+    }
+    exact_pilot = dates == PILOT_DATES
+    baseline = {
+        "actual": actual_baseline,
+        "expected": EXPECTED_FAST_BASELINE if exact_pilot else None,
+        "matches_expected": actual_baseline == EXPECTED_FAST_BASELINE if exact_pilot else None,
+    }
+    _write_records(output, "availability", availability)
+    _write_records(output, "membership", membership)
+    _write_records(output, "membership_summary", membership_summary)
+    _write_records(output, "stock_membership", stocks)
+    _write_records(output, "matching_endpoint_overlap", endpoint_overlap)
+    _write_records(output, "retained_period_overlap", period_overlap)
+    _write_records(output, "threshold_disagreements", disagreements)
+    _write_records(output, "filter_contribution", contributions)
+    _write_records(output, "example_stretches", examples)
+    _write_records(output, "retained_periods", period_records)
+    (output / "baseline_sanity.json").write_text(
+        json.dumps(baseline, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (output / "summary.md").write_text(
+        _summary_markdown(
+            membership_summary,
+            endpoint_overlap,
+            period_overlap,
+            disagreements,
+            contributions,
+            availability,
+            baseline,
+            dates[0],
+            dates[-1],
+        ),
+        encoding="utf-8",
+    )
+    overall = next(row for row in availability if row["scope"] == "overall")
+    return {
+        "represented_members": len(members),
+        "represented_rows": overall["represented_seconds"],
+        "baseline": baseline,
+    }
 
 
 def run(args) -> dict:
@@ -914,57 +1438,174 @@ def run(args) -> dict:
     output.parent.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(output.parent).free < FREE_DISK_RESERVE_BYTES:
         raise ValueError("output destination violates the 20 GiB free-disk reserve")
-    attempt = output.parent / f".{output.name}.attempt-{os.getpid()}"
-    if attempt.exists():
-        raise FileExistsError(attempt)
-    attempt.mkdir()
-    projection = attempt / "disposable_projection.parquet"
+    attempt = output.parent / f".{output.name}.in-progress"
+    attempt.mkdir(exist_ok=True)
+    checkpoints = attempt / "checkpoints"
+    checkpoints.mkdir(exist_ok=True)
     query = _load_projection_sql()
     started = time.perf_counter()
+    implementation_identity = _implementation_identity()
+    settings_identity = {
+        "batch_size": args.batch_size,
+        "memory_limit": args.memory_limit,
+        "threads": args.threads,
+        "max_temp_directory_size": args.max_temp_directory_size,
+        "projection_sha256": hashlib.sha256(query.encode()).hexdigest(),
+    }
+    catalog_started = time.perf_counter()
+    catalog_manifest, catalog_records, _, _, catalog_bytes = read_endpoint_query_catalog(
+        args.catalog, expected_identity=args.identity
+    )
+    catalog_seconds = time.perf_counter() - catalog_started
+    selected_records = [
+        record for record in catalog_records
+        if start.isoformat() <= record["session_date"] <= end.isoformat()
+    ]
+    if not selected_records:
+        raise ValueError("requested scope contains no represented dates")
+    dates = tuple(sorted({record["session_date"] for record in selected_records}))
+    members_by_date = {
+        current: tuple(
+            record["member"] for record in selected_records
+            if record["session_date"] == current
+        )
+        for current in dates
+    }
+    chunk_roots = []
+    chunk_results = []
+    validation_seconds = 0.0
+    validation_bytes = 0
     database = None
     try:
-        database = open_tape_database(
-            args.catalog,
-            expected_identity=args.identity,
-            data_roots={"base": args.base_root, "features": args.feature_root},
-            start_date=start.isoformat(),
-            end_date=end.isoformat(),
-            memory_limit="256MiB",
-        )
-        selected_members = list(database.selected_members)
-        projection_started = time.perf_counter()
+        for index, current_date in enumerate(dates, 1):
+            date_started = time.perf_counter()
+            print(
+                f"half-life comparison: date {index}/{len(dates)} {current_date} "
+                f"opening {len(members_by_date[current_date])} members",
+                flush=True,
+            )
+            date_temp = (
+                args.temp_directory.resolve() / current_date
+                if args.temp_directory is not None
+                else attempt / "duckdb-scratch" / current_date
+            )
+            database = open_tape_database(
+                args.catalog,
+                expected_identity=args.identity,
+                data_roots={"base": args.base_root, "features": args.feature_root},
+                start_date=current_date,
+                end_date=current_date,
+                members=members_by_date[current_date],
+                memory_limit=args.memory_limit,
+                threads=args.threads,
+                temp_directory=date_temp / "reader",
+                max_temp_directory_size=args.max_temp_directory_size,
+            )
+            validation_seconds += database.validation_seconds
+            validation_bytes += database.validation_bytes
+            source_identity = {
+                "query_catalog_identity": database.catalog_identity,
+                "release_source_revision": database.release_source_revision,
+                "release_wheel_sha256": database.release_wheel_sha256,
+            }
+            checkpoint_root = checkpoints / current_date
+            expected_checkpoint = {
+                "schema": CHECKPOINT_SCHEMA,
+                "date": current_date,
+                "implementation_identity": implementation_identity,
+                "settings_identity": settings_identity,
+                "source_identity": source_identity,
+                "members": list(database.selected_members),
+            }
+            if _valid_checkpoint(checkpoint_root, expected_checkpoint):
+                manifest = json.loads(
+                    (checkpoint_root / "checkpoint.json").read_text(encoding="utf-8")
+                )
+                database.close()
+                database = None
+                chunk_roots.append(checkpoint_root)
+                chunk_results.append(manifest["result"])
+                print(
+                    f"half-life comparison: date {current_date} reused checkpoint "
+                    f"rows={manifest['result']['represented_rows']:,} "
+                    f"elapsed={time.perf_counter() - started:.1f}s",
+                    flush=True,
+                )
+                continue
+            if checkpoint_root.exists():
+                shutil.rmtree(checkpoint_root)
+            chunk_attempt = checkpoints / f".{current_date}.attempt-{os.getpid()}"
+            if chunk_attempt.exists():
+                shutil.rmtree(chunk_attempt)
+            chunk_attempt.mkdir()
+            projection = chunk_attempt / "projection.parquet"
+            projection_started = time.perf_counter()
+            rows, projection_bytes = _write_projection(
+                database.sql(query), projection, args.batch_size
+            )
+            database._check_inputs()
+            projection_seconds = time.perf_counter() - projection_started
+            database.close()
+            database = None
+            analysis_started = time.perf_counter()
+            result = _analyze_projection(
+                projection,
+                chunk_attempt,
+                (current_date,),
+                memory_limit=args.memory_limit,
+                threads=args.threads,
+                temp_directory=date_temp / "analysis",
+                max_temp_directory_size=args.max_temp_directory_size,
+                all_failure_combinations=True,
+            )
+            analysis_seconds = time.perf_counter() - analysis_started
+            projection.unlink()
+            shutil.rmtree(date_temp, ignore_errors=True)
+            chunk_result = {
+                **result,
+                "projection_rows": rows,
+                "projection_bytes": projection_bytes,
+                "projection_seconds": projection_seconds,
+                "analysis_seconds": analysis_seconds,
+                "total_seconds": time.perf_counter() - date_started,
+            }
+            manifest = {
+                **expected_checkpoint,
+                "result": chunk_result,
+                "artifacts": _checkpoint_artifacts(chunk_attempt),
+            }
+            (chunk_attempt / "checkpoint.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            os.rename(chunk_attempt, checkpoint_root)
+            chunk_roots.append(checkpoint_root)
+            chunk_results.append(chunk_result)
+            print(
+                f"half-life comparison: date {current_date} complete rows={rows:,} "
+                f"projection={projection_seconds:.1f}s analysis={analysis_seconds:.1f}s "
+                f"elapsed={time.perf_counter() - started:.1f}s",
+                flush=True,
+            )
 
-        def member_results():
-            for member in selected_members:
-                session_date, symbol = member.split("/", 1)
-                yield database.sql(query, params=[session_date, symbol])
-
-        rows, projection_bytes = _write_projection_results(
-            member_results(), projection, args.batch_size
-        )
-        if projection_bytes > OUTPUT_SCRATCH_CAP_BYTES:
-            raise ValueError("disposable projection exceeds the 4 GiB output/scratch cap")
-        projection_seconds = time.perf_counter() - projection_started
-        source = {
-            "query_catalog_identity": database.catalog_identity,
-            "release_source_revision": database.release_source_revision,
-            "release_wheel_sha256": database.release_wheel_sha256,
-            "validation_seconds": database.validation_seconds,
-            "validation_bytes": database.validation_bytes,
-        }
-        database.close()
-        database = None
-
-        analysis_started = time.perf_counter()
-        dates = tuple(
-            date.fromordinal(start.toordinal() + offset).isoformat()
-            for offset in range((end - start).days + 1)
-        )
-        result = _analyze_projection(
-            projection, attempt, dates, memory_limit=args.memory_limit
-        )
-        analysis_seconds = time.perf_counter() - analysis_started
-        projection.unlink()
+        for stem in (
+            "availability",
+            "membership",
+            "membership_summary",
+            "stock_membership",
+            "matching_endpoint_overlap",
+            "retained_period_overlap",
+            "threshold_disagreements",
+            "filter_contribution",
+            "example_stretches",
+            "retained_periods",
+        ):
+            for suffix in ("json", "csv"):
+                (attempt / f"{stem}.{suffix}").unlink(missing_ok=True)
+        for name in ("baseline_sanity.json", "summary.md", "query.sql", "config.json"):
+            (attempt / name).unlink(missing_ok=True)
+        merge_started = time.perf_counter()
+        result = _merge_chunk_outputs(chunk_roots, attempt, dates)
+        merge_seconds = time.perf_counter() - merge_started
         (attempt / "query.sql").write_text(query + "\n", encoding="utf-8")
         config_path = Path(__file__).with_name("half_life_comparison") / "pilot_config.json"
         shutil.copyfile(config_path, attempt / "config.json")
@@ -978,11 +1619,20 @@ def run(args) -> dict:
                         "sha256": _sha256(path),
                     }
                 )
+        source = {
+            "query_catalog_identity": catalog_manifest["catalog_identity"],
+            "release_source_revision": catalog_manifest["release"].get("source_revision"),
+            "release_wheel_sha256": catalog_manifest["release"].get("wheel_sha256"),
+            "catalog_discovery_seconds": catalog_seconds,
+            "catalog_discovery_bytes": catalog_bytes,
+            "date_scope_validation_seconds": validation_seconds,
+            "date_scope_validation_bytes": validation_bytes,
+        }
         metadata = {
             "schema": "half_life_selection_study_v1",
             "dates": {"start": start.isoformat(), "end": end.isoformat(), "inclusive": True},
-            "actual_member_count": len(selected_members),
-            "actual_row_count": rows,
+            "actual_member_count": result["represented_members"],
+            "actual_row_count": result["represented_rows"],
             "source": source,
             "runner_source_revision": _source_revision(),
             "settings": {
@@ -993,19 +1643,35 @@ def run(args) -> dict:
                 "minimum_occupancy": str(MINIMUM_OCCUPANCY),
                 "batch_size": args.batch_size,
                 "analysis_memory_limit": args.memory_limit,
+                "analysis_threads": args.threads,
                 "free_disk_reserve_bytes": FREE_DISK_RESERVE_BYTES,
-                "output_scratch_cap_bytes": OUTPUT_SCRATCH_CAP_BYTES,
+                "duckdb_temp_directory": str(
+                    args.temp_directory.resolve()
+                    if args.temp_directory is not None
+                    else attempt / "duckdb-scratch"
+                ),
+                "duckdb_max_temp_directory_size": args.max_temp_directory_size,
             },
             "runtime_seconds": {
-                "projection": projection_seconds,
-                "analysis": analysis_seconds,
+                "catalog_discovery": catalog_seconds,
+                "projection": sum(row["projection_seconds"] for row in chunk_results),
+                "condition_materialization": sum(
+                    row["phase_seconds"]["condition_materialization"]
+                    for row in chunk_results
+                ),
+                "period_reduction": sum(
+                    row["phase_seconds"]["period_reduction"] for row in chunk_results
+                ),
+                "aggregate_statistics": sum(
+                    row["phase_seconds"]["aggregate_statistics"] for row in chunk_results
+                ),
+                "chunk_output_writing": sum(
+                    row["phase_seconds"]["output_writing"] for row in chunk_results
+                ),
+                "final_merge_and_output": merge_seconds,
                 "total": time.perf_counter() - started,
             },
-            "disposable_projection": {
-                "rows": rows,
-                "bytes_before_deletion": projection_bytes,
-                "deleted": True,
-            },
+            "date_chunks": chunk_results,
             "artifacts": artifacts,
             "reproducible_commands": {
                 "pilot": "$QUERY_RELEASE/bin/python scripts/research/compare_half_life_selection.py --start-date 2026-06-01 --end-date 2026-06-05 --output PRIVATE_OUTPUT_DIRECTORY",
@@ -1021,7 +1687,11 @@ def run(args) -> dict:
     except Exception:
         if database is not None:
             database.close()
-        shutil.rmtree(attempt, ignore_errors=True)
+        print(
+            f"half-life comparison: preserving resumable work at {attempt}",
+            file=os.sys.stderr,
+            flush=True,
+        )
         raise
 
 

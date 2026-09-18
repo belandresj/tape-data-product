@@ -1,5 +1,7 @@
 import importlib.util
+import json
 from pathlib import Path
+import random
 
 import duckdb
 import pyarrow as pa
@@ -72,7 +74,7 @@ def test_common_eligibility_threshold_boundaries_and_fixed_removal_population(tm
         # Removing a fast condition cannot admit a row outside the fixed common mask.
         assert connection.execute(
             "SELECT count(*) FROM evaluated WHERE common_eligible AND ("
-            + module._all_pass(30, omit="movement")
+            + module._pass_all("fast", omit="movement")
             + ")"
         ).fetchone()[0] == 0
     finally:
@@ -270,3 +272,125 @@ def test_full_synthetic_analysis_reuses_period_semantics_and_writes_audit_tables
     assert overlap_member["shared_seconds"] == 500
     assert (output / "retained_periods.csv").is_file()
     assert (output / "summary.md").is_file()
+
+
+def test_combined_period_reduction_matches_existing_sql_oracle(tmp_path, monkeypatch):
+    module = _module()
+    reducer_spec = importlib.util.spec_from_file_location("episode_reducer", REDUCER)
+    reducer = importlib.util.module_from_spec(reducer_spec)
+    reducer_spec.loader.exec_module(reducer)
+    monkeypatch.setattr(module, "MINIMUM_EPISODE_SECONDS", 5)
+    monkeypatch.setattr(module, "MINIMUM_OCCUPANCY", module.Decimal("0.40"))
+    rng = random.Random(90210)
+    dates = ("2026-06-01", "2026-06-02")
+    rows = []
+    for session_date in dates:
+        for symbol in ("AAA", "BBB"):
+            for session in ("rth", "eth"):
+                for index in range(90):
+                    if index == 37:
+                        continue
+                    row = _row(index, symbol=symbol)
+                    row["session_date"] = session_date
+                    row["session"] = session
+                    if rng.random() < 0.18:
+                        row["midpoint_rms_5s_bps_hl30s"] = 9.0
+                    if rng.random() < 0.16:
+                        row["quoted_spread_bps_hl120s"] = 101.0
+                    if rng.random() < 0.08:
+                        row["trade_rate_per_second_hl120s"] = None
+                    rows.append(row)
+    connection, projection = _connection(module, tmp_path, rows)
+    try:
+        optimized = module._period_variants(
+            connection, reducer, projection, dates
+        )
+        for variant, segment, matching in module._variant_matches():
+            eligible = "fast_available" if segment == "fast_segment" else "common_eligible"
+            source_sql = (
+                "SELECT session_date, symbol, session, interval_end_ns, "
+                f"({eligible}) AS eligible, coalesce(({matching}), false) AS matching "
+                "FROM evaluated"
+            )
+            oracle = connection.execute(
+                reducer._episode_sql(
+                    module.OFF_DELAY_SECONDS,
+                    module.MINIMUM_EPISODE_SECONDS,
+                    module.MINIMUM_OCCUPANCY,
+                    date_count=len(dates),
+                    source_sql=source_sql,
+                ),
+                list(dates),
+            ).to_arrow_table()
+            assert optimized[variant].to_pylist() == oracle.to_pylist(), variant
+    finally:
+        connection.close()
+
+
+def test_date_chunk_merge_is_identical_to_whole_scope_analysis(tmp_path, monkeypatch):
+    module = _module()
+    monkeypatch.setattr(module, "MINIMUM_EPISODE_SECONDS", 10)
+    monkeypatch.setattr(module, "MINIMUM_OCCUPANCY", module.Decimal("0.50"))
+    dates = ("2026-06-01", "2026-06-02")
+    rows = []
+    for date_index, session_date in enumerate(dates):
+        for symbol in ("AAA", "BBB"):
+            for index in range(80):
+                row = _row(index, symbol=symbol)
+                row["session_date"] = session_date
+                if (index + date_index) % 9 == 0:
+                    row["midpoint_rms_5s_bps_hl30s"] = 9.0
+                if (index + date_index) % 11 == 0:
+                    row["quoted_spread_bps_hl120s"] = 101.0
+                rows.append(row)
+
+    combined_projection = tmp_path / "combined.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), combined_projection)
+    combined = tmp_path / "combined"
+    combined.mkdir()
+    module._analyze_projection(
+        combined_projection, combined, dates, memory_limit="256MiB"
+    )
+
+    chunks = []
+    for session_date in dates:
+        chunk = tmp_path / session_date
+        chunk.mkdir()
+        projection = chunk / "projection.parquet"
+        pq.write_table(
+            pa.Table.from_pylist(
+                [row for row in rows if row["session_date"] == session_date]
+            ),
+            projection,
+        )
+        module._analyze_projection(
+            projection,
+            chunk,
+            (session_date,),
+            memory_limit="256MiB",
+            all_failure_combinations=True,
+        )
+        projection.unlink()
+        chunks.append(chunk)
+
+    merged = tmp_path / "merged"
+    merged.mkdir()
+    module._merge_chunk_outputs(chunks, merged, dates)
+    for stem in (
+        "availability",
+        "membership",
+        "membership_summary",
+        "stock_membership",
+        "matching_endpoint_overlap",
+        "retained_period_overlap",
+        "threshold_disagreements",
+        "filter_contribution",
+        "example_stretches",
+        "retained_periods",
+    ):
+        assert json.loads((merged / f"{stem}.json").read_text()) == json.loads(
+            (combined / f"{stem}.json").read_text()
+        ), stem
+    assert json.loads((merged / "baseline_sanity.json").read_text()) == json.loads(
+        (combined / "baseline_sanity.json").read_text()
+    )

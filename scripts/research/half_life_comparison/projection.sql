@@ -16,5 +16,3 @@ SELECT
     quote_age_p90_seconds_window60s,
     trade_age_p90_seconds_window60s
 FROM features
-WHERE session_date = ? AND symbol = ?
-ORDER BY interval_end_ns
