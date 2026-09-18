@@ -9,8 +9,7 @@ A Python/DuckDB research data product that transforms Massive U.S. equities trad
 - **Methodology:** Explicit SIP-time alignment, trade-eligibility rules, exposure-weighted aggregation, and coverage requirements. Feed gaps, invalid observations, and trading halts are handled separately from genuine market inactivity.
 - **Research workflow:** Query stored features with SQL through Python or the command line, optionally group matching endpoints into sustained periods, and export results to Parquet.
 - **Worked example:** An illustrative query across five trading dates identifies 55 sustained historical periods across 35 symbol-days, with documented selection and period-grouping rules.
-
-**Scope:** The historical population is retrospectively screened for eventful symbol-days. The product supports reproducible measurement and selection—not claims of predictive validity, executable returns, or market-wide representativeness.
+- **Scope:** The historical population is retrospectively screened for eventful symbol-days. The product supports reproducible measurement and selection—not claims of predictive validity, executable returns, or market-wide representativeness.
 
 ## 1. Purpose
 
