@@ -11,6 +11,17 @@ A Python/DuckDB research data product that transforms Massive U.S. equities trad
 - **Research workflow:** Query stored features with SQL through Python or the command line, optionally group matching endpoints into sustained periods, and export results to Parquet.
 - **Worked example:** An illustrative query across five trading dates identifies 55 sustained historical periods across 35 symbol-days, with documented selection and period-grouping rules.
 
+## Market-data validation summary
+
+- SIP-time ordering. Events are read in SIP timestamp order, with sequence numbers resolving ties within each stream. Duplicate or backward event keys are rejected, and each endpoint uses only events timestamped before it.
+- Late and ineligible trades. Activity and trade freshness use only reports accepted by the sale-condition and correction-code rules, with reporting delays between zero and one second. Uncertain eligibility makes the affected second’s activity unavailable.
+- Invalid quotes. Crossed, one-sided, nonfirm, missing or nonpositive quote prices are marked unusable. An invalid update is not replaced with an older good quote. Valid locked quotes—equal bid and ask—retain zero spread.
+- Halts. Every second overlapping a recognized halt is unavailable. Histories restart after reopening; fast and slow measures require 60 and 300 seconds of new startup history, respectively.
+- Feed gaps and staleness. Known gaps affect only the relevant trade or quote stream; returns cannot bridge quote-feed gaps. Older feature history continues to decay rather than resetting. Event ages expose staleness without assuming that silence means an outage.
+- NULL versus zero. An observed second with no eligible trades contributes zero activity. Missing data, insufficient history and undefined values remain NULL with a recorded reason; for example, movement divided by a zero spread is unavailable.
+- Size units. Quote sizes require explicit unit evidence to avoid confusing shares with round lots. Bad displayed size invalidates only the affected side, not otherwise valid prices. Fractional trade quantities are preserved.
+Limitations. These rules do not establish complete historical retrieval or exact client-arrival timing. The acquisition/replay path has no general price-outlier check for otherwise-valid trades or quotes.
+
 ## 1. Purpose
 
 Short-horizon signals are not equally meaningful under every market condition. A quantitative researcher may want to study a signal only when a stock has substantial recent movement, when that movement is large relative to the quoted spread, when transactions or traded dollars arrive at a sufficient rate, or when trades and quotes are recent. Tape Data Product V2 measures these characteristics once per second so that they can define an explicit research universe rather than remain informal judgments about whether a stock was “active.”
