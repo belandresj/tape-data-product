@@ -48,6 +48,9 @@ jobs:
           tests/test_gpus_cast_comparison.py
           tests/test_structured_tape_episodes.py
           tests/test_structured_tape_windows.py
+          tests/test_half_life_selection.py
+          tests/test_half_life_dollar_throughput.py
+          tests/test_half_life_dollar_throughput_streaming.py
           tests/test_v2_smoke.py
       - run: python -c "import matplotlib.font_manager"
         env:

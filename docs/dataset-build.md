@@ -79,3 +79,5 @@ tape-product report gpus-cast ...
 Numerical reduction is separate from rendering so labels and layout can be revised without rescanning feature data. Publication artifacts live under `reports/report_v2/`; private member-level contributions and machine-specific receipts remain outside Git.
 
 The repository does not contain the private historical corpus, so a fresh clone can verify code and tracked report artifacts but cannot reproduce the empirical release without the inputs described in [historical data access](data-access.md).
+
+The final eight-condition fast/slow comparison has a separate [reproduction guide](../scripts/research/half_life_dollar_throughput/README.md). It runs the recovered study script over stored V2 features, after producing the seven-condition baseline used for reconciliation.

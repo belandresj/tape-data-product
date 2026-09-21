@@ -1,0 +1,13 @@
+{
+  "schema": "recovered_study_source_v1",
+  "original_source_revision": "2e05ce86f6cd3726cb4a2d102932454a4b72f8df",
+  "original_study_wheel_sha256": "ae7d99638db05aed610962e0f8e457f065331015fd842e2bfdc425824348185f",
+  "verification": "These source files matched the original installed study runner byte for byte during recovery.",
+  "files": {
+    "scripts/research/analyze_half_life_dollar_throughput.py": "b99b1e0b51209721684d8985f9401bbbf4df3d7c0a1c4377f54d82635728c0df",
+    "scripts/research/analyze_half_life_dollar_throughput_streaming.py": "aeb71b02362b721216b8db49e88d14a4e6b2f1f72d6627656e85f2ae57901f47",
+    "scripts/research/compare_half_life_selection.py": "a35c4d3c2e71461cf9ebd6fb21b62700fe26cda06a9f109fc7e0dbef6aa7169c",
+    "scripts/research/select_structured_tape_episodes.py": "f2e8fc662163c7d8b8d4a7ead76bad5a4b31b675f58ec9eecdb9fac49e6a94d6",
+    "scripts/research/half_life_dollar_throughput/projection.sql": "ef502b330400989493a4f1434f097257d015f1b6368c5b2b6ae67785ee1caa49"
+  }
+}

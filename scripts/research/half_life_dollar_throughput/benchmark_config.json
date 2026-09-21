@@ -1,0 +1,13 @@
+{
+  "schema": "half_life_dollar_throughput_benchmark_scope_v1",
+  "selection_basis": "Chosen before examining dollar-rate results from accepted catalog member counts and endpoint file bytes",
+  "dates": [
+    {"session_date": "2026-04-01", "size_class": "small", "members": 19, "endpoint_bytes": 260969776, "query_feature_bytes": 181768884},
+    {"session_date": "2026-07-13", "size_class": "approximately_median", "members": 42, "endpoint_bytes": 548341126, "query_feature_bytes": 388742888},
+    {"session_date": "2026-06-11", "size_class": "large", "members": 72, "endpoint_bytes": 935293832, "query_feature_bytes": 670809793}
+  ],
+  "catalog_dates": 122,
+  "catalog_members": 5208,
+  "catalog_endpoint_bytes": 69384625884,
+  "catalog_query_feature_bytes": 48859889058
+}
