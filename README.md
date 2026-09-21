@@ -422,6 +422,8 @@ Without the dollar condition, the reducer retains 952 fast and 1,321 slow period
 
 The study's `config.json` records the screen and comparison rules. Numerical sources for this section are `constrained_matching_overlap.csv`, `constrained_retained_overlap.csv`, `constrained_membership_summary.csv`, `constrained_retained_periods.csv`, and `dollar_gate_accounting.csv`. Session-level accounting is retained in `contribution_by_session.csv`. Membership classifications and daily summaries are reductions of those saved results.
 
+The publication-safe aggregate, including the scope, screen and period rules, counts, calculated ratios, study and release identities, and source-artifact hashes, is [the full-study numerical summary](reports/report_v2/data/half_life_dollar_10k_summary.json).
+
 These sources support the published counts, overlap measures, period durations, and dollar-condition comparison. They do not preserve standalone eight-condition query totals, final-screen removal tests for the other seven conditions, or feature-by-feature causes of internal period interruptions. Earlier seven-condition diagnostics must not be presented as results for the final eight-condition screen.
 
 Detailed member-level outputs and machine-specific paths remain outside the public report tree.
