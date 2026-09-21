@@ -82,7 +82,7 @@ The database's 27 queryable fields support **12 researcher-facing dimensions**. 
 
 The nine movement, friction, activity, and displayed-liquidity measurements are published in a **fast** view with a 30-second exponential half-life and a **slow** view with a 120-second half-life. A half-life is a decay setting—the weight of an observation halves after that interval—not a hard lookback window. Freshness p90s instead use ordinary fixed trailing windows of 60 and 300 seconds, while current ages are unsmoothed. Displayed bid and ask notionals are query-time derivations from the corresponding EW mean shares and current side price; they are not additional stored features.
 
-Each timestamp labels measurements constructed from preceding events; a row ending at time `t` summarizes the second immediately before `t`. Missing, invalid, or insufficiently covered inputs remain unavailable rather than being converted to observed inactivity. Recognized halts suppress publication and reset the affected histories. After trading resumes, the fast and slow views require 60 and 300 seconds of new startup history, respectively, before they can become available again.
+Each timestamp labels measurements constructed from preceding events; a row ending at time $t$ summarizes the second immediately before $t$. Missing, invalid, or insufficiently covered inputs remain unavailable rather than being converted to observed inactivity. Recognized halts suppress publication and reset the affected histories. After trading resumes, the fast and slow views require 60 and 300 seconds of new startup history, respectively, before they can become available again.
 
 ### 3.3 Comparing tapes with different movement to spread ratios
 
@@ -270,45 +270,45 @@ The database provides a defined, repeatable way to construct and inspect histori
 
 ### A.1 Endpoint clock and eligible events
 
-Each stored row labeled `t` summarizes the half-open interval `[t−1s, t)`. An event timestamped exactly at `t` belongs to the following row, and feature histories use events strictly before the labeled endpoint. Session reporting uses America/New_York time: premarket rows end after 04:00 through 09:30, RTH rows end after 09:30 through 16:00, and after-hours rows end after 16:00 through 20:00. The row ending at 09:30 therefore summarizes the final premarket second.
+Each stored row labeled $t$ summarizes the half-open interval $[t-1\mathrm{s}, t)$. An event timestamped exactly at $t$ belongs to the following row, and feature histories use events strictly before the labeled endpoint. Session reporting uses America/New_York time: premarket rows end after 04:00 through 09:30, RTH rows end after 09:30 through 16:00, and after-hours rows end after 16:00 through 20:00. The row ending at 09:30 therefore summarizes the final premarket second.
 
 Activity is assigned by SIP timestamp. An otherwise eligible trade contributes only when its reporting age satisfies
 
-\[
+$$
 0 \leq t_{\mathrm{SIP}}-t_{\mathrm{participant}} \leq 1\ \mathrm{second}.
-\]
+$$
 
 Eligible condition codes are 0, 3, 14, 36, 37, 41, and 60, with code 12 additionally accepted outside RTH. Original correction payloads 0, 7, and 8 are eligible; action records, correction payload 1, and known late or ineligible reports do not contribute to count, shares, dollars, or eligible-trade freshness. Unknown eligibility makes the affected activity observation unavailable rather than zero.
 
 ### A.2 Movement and derived measurements
 
-Let `m(t)` be the finite, positive midpoint of the prevailing valid quote state immediately before endpoint `t`. The supported five-second return is
+Let $m(t)$ be the finite, positive midpoint of the prevailing valid quote state immediately before endpoint $t$. The supported five-second return is
 
-\[
+$$
 r_t=10{,}000\log\!\left(\frac{m(t)}{m(t-5s)}\right),
-\]
+$$
 
 in basis points. Both endpoints must be valid, and the return cannot cross a declared halt or continuity break. The one-second sequence of five-second returns overlaps; a single price jump can affect several observations.
 
-For half-life `h`, weights decay in wall-clock time as `2^{-(t-u)/h}` and are normalized over supported observations. With
+For half-life $h$, weights decay in wall-clock time as $2^{-(t-u)/h}$ and are normalized over supported observations. With
 
-\[
+$$
 Q_t=\sum_u w_u r_u^2,
 \qquad
 A_t=\sum_u w_u |r_u|,
-\]
+$$
 
 the published movement, participation, and movement/spread measurements are
 
-\[
+$$
 \sigma_{5,t}=\sqrt{Q_t},
 \qquad
 P_t=\frac{A_t^2}{Q_t},
 \qquad
 X_t=\frac{\sigma_{5,t}}{S_t},
-\]
+$$
 
-where `S(t)` is the EW mean full quoted spread in basis points at the same half-life. Movement is an RMS magnitude, not a directional return or annualized volatility estimate. Participation describes whether weighted return magnitudes are broadly distributed or concentrated; it discards signs and ordering. Movement/spread is a descriptive scale comparison, not expected capturable return.
+where $S_t$ is the EW mean full quoted spread in basis points at the same half-life. Movement is an RMS magnitude, not a directional return or annualized volatility estimate. Participation describes whether weighted return magnitudes are broadly distributed or concentrated; it discards signs and ordering. Movement/spread is a descriptive scale comparison, not expected capturable return.
 
 Spread, trade/share/dollar rates, and bid/ask displayed sizes are exposure-weighted means. Their supported numerators and durations decay separately before division; the system does not average per-second ratios with unequal coverage. A reliably observed second with no eligible trades contributes zero activity and positive supported time. Missing time contributes no fabricated zero.
 
