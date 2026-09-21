@@ -15,6 +15,7 @@ from tape_data_product.query import (
     build_endpoint_query_catalog,
     open_tape_database,
 )
+from tape_data_product.query import endpoint_database as endpoint_database_module
 from tape_data_product.cli import main
 
 
@@ -309,3 +310,35 @@ def test_date_scope_does_not_touch_unrelated_member_files(tmp_path):
         assert database.sql("SELECT DISTINCT symbol FROM features").fetchall() == [
             ("ONE",)
         ]
+
+
+def test_scoped_database_applies_explicit_threads_and_spill_bound(tmp_path, monkeypatch):
+    _, catalog, result, roots = _catalog(tmp_path)
+    scratch = tmp_path / "duckdb-scratch"
+    monkeypatch.setattr(
+        endpoint_database_module.shutil,
+        "disk_usage",
+        lambda _path: type("Usage", (), {"free": 21 * 1024**3})(),
+    )
+    with open_tape_database(
+        catalog,
+        expected_identity=result["catalog_identity"],
+        data_roots=roots,
+        threads=2,
+        memory_limit="384MiB",
+        temp_directory=scratch,
+        max_temp_directory_size="2GiB",
+    ) as database:
+        assert database.sql("SELECT current_setting('threads')").fetchone()[0] == 2
+        assert database.sql("SELECT current_setting('memory_limit')").fetchone()[0]
+        assert database.sql(
+            "SELECT current_setting('max_temp_directory_size')"
+        ).fetchone()[0]
+
+    with pytest.raises(ContractError, match="requires an explicit temp_directory"):
+        open_tape_database(
+            catalog,
+            expected_identity=result["catalog_identity"],
+            data_roots=roots,
+            max_temp_directory_size="2GiB",
+        )

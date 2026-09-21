@@ -501,11 +501,14 @@ def open_tape_database(
     members=None,
     memory_limit="256MiB",
     temp_directory=None,
+    threads=1,
+    max_temp_directory_size=None,
 ):
     """Open a DuckDB handle over explicit completed date/member files.
 
     Dates are inclusive trading-date bounds. All represented sessions are exposed;
-    a session filter exists only when the researcher's SQL states one.
+    a session filter exists only when the researcher's SQL states one. Thread,
+    memory, and spill limits are caller-controlled but remain bounded and explicit.
     """
     started = time.perf_counter()
     if not isinstance(data_roots, dict) or set(data_roots) != {"base", "features"}:
@@ -519,15 +522,24 @@ def open_tape_database(
         manifest, selected, config, roots, snapshots
     )
     validation_bytes += companion_bytes
+    threads = _bounded_positive(threads, "DuckDB threads", 64)
+    if max_temp_directory_size is not None and (
+        not isinstance(max_temp_directory_size, str) or not max_temp_directory_size
+    ):
+        raise ContractError("max_temp_directory_size must be a nonempty DuckDB size string")
     temporary = None
     if temp_directory is None:
+        if max_temp_directory_size is not None:
+            raise ContractError(
+                "max_temp_directory_size requires an explicit temp_directory"
+            )
         temporary = tempfile.TemporaryDirectory(prefix="tape-duckdb-")
         temp_directory = temporary.name
         max_temp_directory_size = "0B"
     else:
         temp_directory = str(Path(temp_directory).resolve())
         Path(temp_directory).mkdir(parents=True, exist_ok=True)
-        max_temp_directory_size = "1GiB"
+        max_temp_directory_size = max_temp_directory_size or "1GiB"
         if shutil.disk_usage(temp_directory).free < 20 * 1024**3:
             raise ContractError("DuckDB temp directory violates 20 GiB free-disk reserve")
     connection = None
@@ -535,7 +547,7 @@ def open_tape_database(
         connection = duckdb.connect(
             database=":memory:",
             config={
-                "threads": "1",
+                "threads": str(threads),
                 "memory_limit": memory_limit,
                 "temp_directory": temp_directory,
                 "max_temp_directory_size": max_temp_directory_size,

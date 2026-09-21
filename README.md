@@ -9,7 +9,7 @@ A Python/DuckDB research data product that transforms Massive U.S. equities trad
 - **Measurements:** 27 queryable fields across 12 research dimensions, including midpoint movement, movement concentration, quoted spread, movement/spread ratios, transaction throughput, displayed liquidity, and freshness.
 - **Methodology:** Explicit SIP-time alignment, trade-eligibility rules, exposure-weighted aggregation, and coverage requirements. Feed gaps, invalid observations, and trading halts are handled separately from genuine market inactivity.
 - **Research workflow:** Query stored features with SQL through Python or the command line, optionally group matching endpoints into sustained periods, and export results to Parquet.
-- **Worked example:** An illustrative query across five trading dates identifies 55 sustained historical periods across 35 symbol-days, with documented selection and period-grouping rules.
+- **Worked example:** A full-release comparison applies an eight-condition screen—including a $10,000/s dollar-throughput minimum—to the same available timestamps in both published views. It identifies 577 fast-view and 854 slow-view periods and quantifies how the choice of view changes the selected stocks and time intervals.
 
 ## 1. Purpose
 
@@ -154,11 +154,13 @@ Figure 5 partitions the movement–spread relationship by the corresponding trad
 
 ## 6. Querying the Database
 
-The database is designed to turn research requirements into a reproducible set of one-second endpoints. The supported Python interface opens a date-scoped DuckDB view over the completed release; researchers can submit SQL with `db.sql(...)`, return a DataFrame or Arrow batches, or export the result to Parquet. The same SQL can be executed from the `tape-product endpoint-data sql` command. Neither interface recalculates features, and neither applies the report's active-tape gate unless the researcher includes those conditions explicitly.
+The database turns research requirements into a reproducible set of one-second endpoints. The supported Python interface opens a date-scoped DuckDB view over the completed release; researchers can submit SQL with `db.sql(...)`, return a DataFrame or Arrow batches, or export the result to Parquet. The same SQL can be executed from the `tape-product endpoint-data sql` command. Neither interface recalculates features or automatically applies the report's active-tape gate.
 
 ### 6.1 Selecting endpoints
 
-The following query selects endpoints with fast movement above 10 bps, fast quoted spread below 100 bps, movement/spread above 2, participation of at least 0.4, at least 10 trades per second, and recent quote and trade histories. These thresholds are an exploratory definition of a strong, active tape—not an optimized signal or a recommended trading rule.
+Suppose a researcher wants to study short-horizon signals during periods with substantial movement relative to quoted spread, frequent transactions, sufficient traded-dollar throughput, and recent trades and quotes. The following fast-view query expresses those requirements as eight simultaneous conditions.
+
+Transaction frequency and dollar throughput are separate requirements: many transactions do not necessarily mean substantial traded value. The $10,000/s minimum is an illustrative research constraint, not a universal liquidity standard or an estimate of executable order capacity. The thresholds define a historical research sample; they were not optimized against subsequent returns.
 
 ```sql
 SELECT
@@ -171,6 +173,7 @@ SELECT
     midpoint_rms_5s_to_spread_hl30s,
     movement_participation_hl30s,
     trade_rate_per_second_hl30s,
+    dollar_rate_usd_per_second_hl30s,
     quote_age_p90_seconds_window60s,
     trade_age_p90_seconds_window60s
 FROM features
@@ -179,61 +182,89 @@ WHERE midpoint_rms_5s_bps_hl30s > 10
   AND midpoint_rms_5s_to_spread_hl30s > 2
   AND movement_participation_hl30s >= 0.4
   AND trade_rate_per_second_hl30s >= 10
+  AND dollar_rate_usd_per_second_hl30s >= 10000
   AND quote_age_p90_seconds_window60s <= 2
   AND trade_age_p90_seconds_window60s <= 2
 ORDER BY session_date, symbol, endpoint_time;
 ```
 
-Unavailable feature values are SQL `NULL`, so they do not pass these comparisons. Valid zeros remain zeros. Date bounds are supplied when the database is opened, allowing the same query to be run against a bounded part of the release without changing its feature conditions.
+Unavailable feature values are SQL `NULL`, so they do not pass these comparisons. Valid zeros remain zeros. Date bounds are supplied when the database is opened.
 
-Across the five completed dates from June 1 through June 5, 2026, the query returned **189,162 matching endpoints** from 15,995,023 endpoints at which all seven inputs were available. That is 1.183% of eligible endpoints and 1.148% of the 16,473,600 represented seconds. Matches occurred in 177 of 286 symbol-days; a symbol-day with matches at isolated seconds, however, is not necessarily a sustained research period.
+This query requires only the fast-view inputs and the two freshness fields. The comparison in Section 6.3 additionally requires the corresponding slow-view inputs to be available, so both views are evaluated on identical timestamps. Its reported counts are comparison results, not standalone totals from the SQL above.
 
 ### 6.2 Grouping endpoints into periods
 
-Period construction is an optional second step, separate from the SQL selection. For this example, a period begins on a matching endpoint and may continue through fewer than 30 consecutive eligible nonmatching seconds. It ends at 30 consecutive nonmatches, unavailable data, or a session boundary. We retain only periods lasting at least 10 minutes with matching endpoints occupying at least 80% of their elapsed seconds.
+Matching endpoints identify individual observations, but a researcher may instead want sustained intervals. Period construction is an optional second step with its own explicit requirements.
 
-| Date | Represented symbol-days | Eligible endpoints | Unavailable endpoints | Matching endpoints | Retained symbol-days | Retained periods |
-|---|---:|---:|---:|---:|---:|---:|
-| June 1 | 59 | 3,308,281 | 90,119 | 40,807 | 6 | 12 |
-| June 2 | 59 | 3,347,717 | 50,683 | 45,878 | 10 | 17 |
-| June 3 | 52 | 2,928,147 | 67,053 | 32,817 | 4 | 5 |
-| June 4 | 57 | 3,173,511 | 109,689 | 26,231 | 8 | 9 |
-| June 5 | 59 | 3,237,367 | 161,033 | 43,429 | 7 | 12 |
-| **Total** | **286** | **15,995,023** | **478,577** | **189,162** | **35** | **55** |
+For this example, a period begins on a matching endpoint and may continue through at most 29 consecutive eligible nonmatching seconds. Thirty consecutive nonmatches, an unavailable observation, a physical grid gap, or a session/date/member boundary splits the period. Retention requires at least 600 elapsed seconds and matching occupancy of at least 80%.
 
-The reducer retained **55 periods across 35 of 286 symbol-days (12.2%) and 31 distinct symbols**. Among those 35 symbol-days, the median duration of the longest retained period was **14 minutes 43 seconds**; the 75th percentile was 24 minutes 44 seconds, the 90th percentile was 40 minutes 18 seconds, and the maximum was 53 minutes 10 seconds. These values summarize period availability inside this five-date query, not the frequency of comparable periods across the full release.
+The returned interval is trimmed to the first and last matching seconds. It can therefore include short internal interruptions, but not trailing nonmatches after the last match.
 
-### 6.3 Inspecting one returned period
+Period construction needs the full endpoint timeline with availability and matching flags—not only the matching rows returned by the filtered SQL. An observed value below a threshold is an eligible nonmatch; an unavailable input is a period break. These cases must remain distinguishable.
 
-One retained `ANY` premarket period on June 1 illustrates how the grouping rule behaves:
+### 6.3 How the selected sample changes between views
+
+The full-release comparison covers all 5,208 symbol-days and all represented sessions across 122 trading dates, from March 9 through August 31, 2026.
+
+The fast and slow screens use identical numerical thresholds and period rules. The six EW measurements use their respective 30-second or 120-second half-lives; both screens retain the same 60-second quote- and trade-age p90 conditions. Comparison eligibility requires all necessary inputs for both views to be available. This leaves 289,352,161 common-eligible endpoints from 299,980,800 represented endpoints. Availability does not require an observation to pass either screen.
+
+| Selection measure | Fast: 30-second half-life | Slow: 120-second half-life |
+|---|---:|---:|
+| Matching endpoints | 1,880,242 | 1,709,197 |
+| Symbol-days with at least one match | 2,310 | 1,304 |
+| Retained periods | 577 | 854 |
+| Symbol-days with at least one retained period | 366 | 501 |
+| Distinct stocks with retained periods | 267 | 342 |
+| Retained-period coverage, seconds | 604,267 | 1,062,129 |
+| Median elapsed period duration, seconds | 859 | 986.5 |
+
+Retained-period coverage includes permitted internal nonmatches. Duration medians are calculated across individual retained periods, not across the longest period in each symbol-day.
+
+**Dollar throughput adds a substantive constraint.** On the same available timestamps, removing only the dollar-rate condition increases fast matches to 3,024,834 and slow matches to 2,696,973. The $10,000/s requirement therefore excludes 37.84% and 36.63%, respectively, of observations that satisfy the other seven conditions. Both dollar-rate fields were available throughout the common-eligible population, so these exclusions reflect observed throughput below the threshold rather than missing dollar data.
+
+**The choice of view affects endpoint selection and sustained-period selection differently.** Fast produces more matching observations and matches in substantially more symbol-days. After the duration and occupancy requirements are applied, however, slow retains periods in more symbol-days and provides more retained-period coverage. Counting isolated matches alone would therefore give a different picture of the available research sample.
+
+**The retained-period universes share a substantial core.** Of the 366 symbol-days with fast periods, 343 also contain slow periods. Fast adds 23 symbol-days absent from the slow period selection, while slow adds 158 absent from fast. At the temporal level, 87.37% of fast period coverage overlaps slow coverage, whereas 49.71% of slow coverage overlaps fast. Slow therefore retains most of the fast-selected time while adding substantial coverage beyond it.
+
+Shared time divided by time selected by either view is 55.75% for matching endpoints and 46.38% for retained-period coverage. These pooled findings recur across dates: fast has more matching seconds on 112 of 122 dates, while slow has more retained-period coverage on 113 dates.
+
+The comparison quantifies how choosing between the published views changes a research sample. It does not establish an optimal half-life, robustness to nearby parameter changes, or which selection is more useful for predicting subsequent returns. The half-life and period rules should be recorded as part of the sample definition rather than treated as interchangeable settings.
+
+### 6.4 Inspecting one returned period
+
+One fast-view `ANY` premarket period on June 1, 2026, illustrates the grouping rule under the eight-condition screen and common-availability population:
 
 | Field | Value |
 |---|---:|
-| Period | 07:20:12–07:44:17 ET |
-| Elapsed duration | 24 minutes 5 seconds |
-| Matching endpoints | 1,347 |
-| Eligible nonmatching endpoints | 98 |
-| Matching occupancy | 93.22% |
+| Period | 07:20:12–07:41:35 ET |
+| Elapsed duration | 21 minutes 23 seconds |
+| Matching endpoints | 1,184 |
+| Eligible internal nonmatches | 99 |
+| Matching occupancy | 92.28% |
 | Longest interruption | 25 seconds |
 
-The period qualifies because it exceeds 10 minutes, its matching occupancy exceeds 80%, and no interruption reaches the 30-second split threshold. The underlying endpoint rows remain available for feature-by-feature inspection, so a researcher can examine what caused each interruption rather than treating the retained period as homogeneous.
+The period qualifies because it exceeds ten minutes, its matching occupancy exceeds 80%, and no interruption reaches the 30-second split threshold. All 1,184 matching endpoints satisfy the eight conditions, including the fast dollar-rate minimum. The 99 internal nonmatches illustrate why a retained period should not be treated as uniformly qualifying tape.
 
-Both endpoint selection and period grouping are retrospective. This example shows how to retrieve and organize historical feature states; it does not establish that the conditions persist after detection, can be acted on without latency or costs, or produce profitable trades. Full reducer semantics and reproducibility details are provided in the appendix.
+Both the release's historical membership and the completed period selection are retrospective. These examples demonstrate how to retrieve and organize historical feature states; they do not establish future persistence, executable fills, or profitable trades. Comparison-population and reducer details are provided in Appendix B.3.
 
 ## 7. Conclusions and Current Limitations
 
-This database lets researchers search historical U.S. equity trading by the conditions present at each second—not simply whether a stock had a large move sometime during the day. Researchers can combine recent price movement, bid–ask spread, trading activity, displayed liquidity, and trade/quote freshness, then inspect or export matching observations and sustained periods.
-The examples show why these measurements are useful together. GPUS and CAST have similar measured movement and activity at the selected timestamps, but substantially different spreads. The five-day SQL example shows how explicit conditions can identify sustained research periods: it returned 55 periods across 35 symbol-days. These examples demonstrate historical comparison and selection, not a profitable trading strategy.
+This database lets researchers search historical U.S. equity trading by the conditions present at each second—not simply whether a stock had a large move sometime during the day. Researchers can combine recent price movement, quoted spread, transaction frequency, dollar throughput, displayed liquidity, and freshness, then inspect or export matching observations and sustained periods.
+
+The examples show why these requirements are useful together. GPUS and CAST have similar measured movement and activity at the selected timestamps but substantially different spreads. In the full-release query comparison, more than one-third of observations satisfying the other seven conditions fall below the illustrative $10,000/s dollar-throughput minimum. Movement, transaction frequency, quoted friction, and traded-dollar throughput therefore cannot be treated as interchangeable descriptions of activity.
+
+The full-release comparison also shows that a research sample depends on both the feature view and the period definition. Fast produces more matching observations, while slow retains periods in more symbol-days. Most fast-selected period coverage is shared with slow, but slow also includes substantial additional time. These measured differences make the view, thresholds, availability rules, and period construction part of the research specification—not incidental implementation details.
 
 The main limitations are:
+
 - **Selected stocks, not the whole market:** The dataset contains stocks selected for short bursts of substantial movement and trading activity. It includes their full sessions, including time before they qualified. The results therefore describe this selected population, not the broader market or a live screening process.
-- **Historical timing, not measured live delivery:** SIP timestamps determine event ordering, but do not establish when those events reached a researcher’s application. Historical halt records also do not establish when the application would have learned about a halt.
+- **Historical timing, not measured live delivery:** SIP timestamps determine event ordering, but do not establish when those events reached a researcher's application. Historical halt records also do not establish when the application would have learned about a halt. A completed retained period cannot be assumed identifiable at its beginning.
 - **Incomplete evidence about the source data:** For some historical downloads, there is no saved record confirming that every page of trade and quote results was retrieved. Checks on the stored files cannot establish that no events were missed. The current filters also have no general check for unusual but otherwise valid trade or quote prices.
 - **Neighboring observations are not independent:** Consecutive rows reuse much of the same recent history. Stocks, dates, and sessions with more valid observations also contribute more weight to the combined distributions.
-- **Market measurements are not execution estimates:** Displayed liquidity covers only the best bid and ask, not deeper orders, hidden liquidity, or queue position. Quoted spread is not actual trading cost. Movement omits subsecond price paths, and participation describes how concentrated movement is—not its direction.
-- **The query results are illustrative:** The thresholds and period-grouping rules are example research choices. The five-day result does not establish how often similar periods occur across the full dataset or how quickly a full-dataset query would run. Alternative selection rules were not evaluated in this report.
+- **Market measurements are not execution estimates:** Displayed liquidity covers only the best bid and ask, not deeper orders, hidden liquidity, or queue position. Dollar throughput measures reported traded value, not executable capacity. Quoted spread is not actual trading cost. Movement omits subsecond price paths, and participation describes how concentrated movement is—not its direction.
+- **The query settings remain illustrative:** The report compares the two published views under one eight-condition screen and measures the additional restriction imposed by its dollar-rate minimum. It does not establish optimal thresholds, robustness to small changes in half-life, or superiority of either sample for downstream signal research.
 
-The database provides a defined, repeatable way to construct historical research samples. Whether those conditions predict subsequent returns—and whether a strategy could trade them profitably after costs—requires a separate study.
+The database provides a defined, repeatable way to construct and inspect historical research samples. Whether those conditions predict subsequent returns—and whether a strategy could trade them profitably after costs—requires a separate study.
 
 ## Appendix A. Measurement Definitions and Behavior
 
@@ -344,13 +375,58 @@ Thus `represented = valid + unavailable` and `valid = pass + fail`; unavailable 
 
 The historical source is Massive.com trade and quote data retained in a private Cloudflare R2 store. R2 is storage, not the market-data source. Accepted files are identity-checked and reconciled, but the original vendor pagination completion is not independently verified for the complete historical lineage. Reacquiring the same dates would create a new source snapshot rather than prove byte-for-byte reproduction of this report.
 
-### B.3 Five-date query and period reducer
+### B.3 Full-release query comparison and period construction
 
-The Section 6 endpoint query covers all completed members and all represented sessions from June 1 through June 5, 2026. Its seven predicates are evaluated simultaneously at each endpoint. Of 16,473,600 represented seconds, 15,995,023 have all seven inputs available, 189,162 match, and 15,805,861 validly do not match. The remaining 478,577 have at least one unavailable predicate input.
+#### Scope and comparison eligibility
 
-The optional reducer starts a period on a matching endpoint. Fewer than 30 consecutive eligible nonmatching seconds may remain inside it; the period ends when the nonmatching run reaches 30 seconds, when an unavailable endpoint occurs, or at a session boundary. Retention then requires at least 600 elapsed seconds and matching occupancy of at least 0.80. The reducer produced 55 retained periods across 35 symbol-days and 31 symbols.
+The Section 6 comparison covers all 5,208 completed symbol-days, 1,520 distinct stocks, and all represented sessions across 122 trading dates from March 9 through August 31, 2026. It uses historical full-session membership without adding the report's active-tape gate or a post-discovery restriction.
 
-The saved projected query input has SHA-256 `d9f56a80ab82c29d515d741df975c40387542062b7329cdcf2f8e163927d3e81`. Reducer revision `44fb73b8872757e16b2533a52996ad8b17fa1733` produced output SHA-256 `8c335edbe16afda89d297cd79efbab630e67228bd3edfd6023ee87f092c4110e`. The publication-safe aggregate is [strong_tape_episode_population.json](reports/report_v2/data/strong_tape_episode_population.json); detailed member-level rows remain outside the public report tree.
+The fast and slow screens apply the eight conditions in Section 6.1 using their respective EW fields. Both retain the same `quote_age_p90_seconds_window60s <= 2` and `trade_age_p90_seconds_window60s <= 2` requirements. There is no additional current-age condition.
+
+Comparison eligibility requires non-null movement, quoted spread, movement/spread, participation, and trade-rate inputs for both half-lives, plus the two shared 60-second freshness inputs. Both dollar-rate fields must also be non-null and finite. These are availability requirements, not requirements that both screens pass.
+
+Of 299,980,800 represented endpoints, 289,352,161 satisfy the comparison-availability requirements. Both dollar rates are available at every endpoint meeting the other twelve input-availability requirements, so dollar availability excludes no additional endpoints in this release.
+
+The reported fast and slow totals use this common population. They must not be presented as standalone results of the fast-only SQL in Section 6.1, which does not require slow-view availability.
+
+#### Matching and period construction
+
+Each view's eight numerical conditions are evaluated simultaneously. A common-eligible endpoint that fails any condition—including dollar rate below $10,000/s—is an observed nonmatch. An endpoint lacking a required comparison input is unavailable and breaks period continuity. It is not converted to a nonmatch.
+
+A period starts on a matching endpoint and can bridge fewer than 30 consecutive eligible nonmatches. Thirty consecutive nonmatches, an unavailable observation, a physical grid gap, or a session/date/member boundary splits it. Retention requires at least 600 elapsed seconds and matching occupancy of at least 0.80.
+
+The physical interval begins one second before the first matching endpoint and ends at the last matching endpoint. This half-open interval includes matching seconds and permitted internal nonmatches, but excludes trailing nonmatches after the last match. Period-duration medians are calculated across individual retained periods.
+
+The final screen produces 577 fast periods across 366 symbol-days and 267 stocks, and 854 slow periods across 501 symbol-days and 342 stocks. Of those symbol-days, 343 have a retained period in both views, 23 only in fast, and 158 only in slow.
+
+#### Overlap definitions
+
+Matching overlap compares selected one-second endpoints within the same symbol-day. Retained-period overlap compares the physical time covered by retained intervals, including permitted internal nonmatches. Intersections and unions are calculated within symbol-days before being summed; simultaneous observations in different stocks are not the same observation.
+
+| Comparison | Fast seconds | Slow seconds | Shared seconds | Union seconds | Shared/union |
+|---|---:|---:|---:|---:|---:|
+| Matching endpoints | 1,880,242 | 1,709,197 | 1,284,895 | 2,304,544 | 55.75% |
+| Retained-period coverage | 604,267 | 1,062,129 | 527,955 | 1,138,441 | 46.38% |
+
+A symbol-day belongs to both views when each has at least one qualifying observation or period under the stated membership definition. Shared membership does not require those observations or periods to coincide in time.
+
+Pooled overlap is calculated from summed shared and union time, not by averaging daily percentages. Median daily matching overlap is 53.07%, with an interquartile range of 48.10%–59.13%. Median daily retained-period overlap is 41.69%, with an interquartile range of 32.44%–54.11%, across the 118 dates with retained coverage in at least one view. The remaining four dates have no retained coverage and therefore no defined period-overlap ratio.
+
+#### Contribution of the dollar-rate requirement
+
+Omitting only the dollar-rate threshold on the same available population produces 3,024,834 fast matches and 2,696,973 slow matches. The dollar requirement excludes 1,144,592 fast observations and 987,776 slow observations that pass the other seven conditions: 37.84% and 36.63%, respectively.
+
+Without the dollar condition, the reducer retains 952 fast and 1,321 slow periods, compared with 577 and 854 under the final screen. Period counts are not an additive count of individually removed opportunities: changing a predicate can alter interval boundaries, continuity, and qualification under the occupancy rule.
+
+#### Saved numerical sources
+
+The study's `config.json` records the screen and comparison rules. Numerical sources for this section are `constrained_matching_overlap.csv`, `constrained_retained_overlap.csv`, `constrained_membership_summary.csv`, `constrained_retained_periods.csv`, and `dollar_gate_accounting.csv`. Session-level accounting is retained in `contribution_by_session.csv`. Membership classifications and daily summaries are reductions of those saved results.
+
+The publication-safe aggregate, including the scope, screen and period rules, counts, calculated ratios, study and release identities, and source-artifact hashes, is [the full-study numerical summary](reports/report_v2/data/half_life_dollar_10k_summary.json).
+
+These sources support the published counts, overlap measures, period durations, and dollar-condition comparison. They do not preserve standalone eight-condition query totals, final-screen removal tests for the other seven conditions, or feature-by-feature causes of internal period interruptions. Earlier seven-condition diagnostics must not be presented as results for the final eight-condition screen.
+
+Detailed member-level outputs and machine-specific paths remain outside the public report tree.
 
 ### B.4 Example and reproduction notes
 
