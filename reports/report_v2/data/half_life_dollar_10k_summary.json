@@ -1,0 +1,472 @@
+{
+  "schema": "half_life_dollar_10k_public_summary_v1",
+  "status": "completed_publication_export",
+  "result_population_label": "common-availability fast/slow comparison; not standalone per-view query results",
+  "scope": {
+    "dates": {
+      "start": "2026-03-09",
+      "end": "2026-08-31",
+      "inclusive": true,
+      "count": 122
+    },
+    "represented_endpoints": 299980800,
+    "represented_symbol_days": 5208,
+    "distinct_stocks": 1520,
+    "common_eligible_endpoints": 289352161,
+    "calculated_common_eligible_share_of_represented": 0.9645689357452211
+  },
+  "screen": {
+    "conditions": [
+      {
+        "key": "movement",
+        "fast_field": "midpoint_rms_5s_bps_hl30s",
+        "slow_field": "midpoint_rms_5s_bps_hl120s",
+        "operator": ">",
+        "threshold": 10,
+        "unit": "bps"
+      },
+      {
+        "key": "quoted_spread",
+        "fast_field": "quoted_spread_bps_hl30s",
+        "slow_field": "quoted_spread_bps_hl120s",
+        "operator": "<",
+        "threshold": 100,
+        "unit": "bps"
+      },
+      {
+        "key": "movement_to_spread",
+        "fast_field": "midpoint_rms_5s_to_spread_hl30s",
+        "slow_field": "midpoint_rms_5s_to_spread_hl120s",
+        "operator": ">",
+        "threshold": 2,
+        "unit": "ratio"
+      },
+      {
+        "key": "movement_participation",
+        "fast_field": "movement_participation_hl30s",
+        "slow_field": "movement_participation_hl120s",
+        "operator": ">=",
+        "threshold": 0.4,
+        "unit": "ratio"
+      },
+      {
+        "key": "trade_rate",
+        "fast_field": "trade_rate_per_second_hl30s",
+        "slow_field": "trade_rate_per_second_hl120s",
+        "operator": ">=",
+        "threshold": 10,
+        "unit": "trades_per_second"
+      },
+      {
+        "key": "dollar_rate",
+        "fast_field": "dollar_rate_usd_per_second_hl30s",
+        "slow_field": "dollar_rate_usd_per_second_hl120s",
+        "operator": ">=",
+        "threshold": 10000,
+        "unit": "USD_per_second"
+      },
+      {
+        "key": "quote_freshness",
+        "fast_field": "quote_age_p90_seconds_window60s",
+        "slow_field": "quote_age_p90_seconds_window60s",
+        "operator": "<=",
+        "threshold": 2,
+        "unit": "seconds"
+      },
+      {
+        "key": "trade_freshness",
+        "fast_field": "trade_age_p90_seconds_window60s",
+        "slow_field": "trade_age_p90_seconds_window60s",
+        "operator": "<=",
+        "threshold": 2,
+        "unit": "seconds"
+      }
+    ],
+    "common_availability_requirements": {
+      "ew_and_freshness": "all five fast EW inputs, all five slow EW inputs, and the two shared 60-second freshness inputs are non-null",
+      "dollar": "both corresponding dollar-rate fields are non-null and finite",
+      "common_eligible_endpoints": 289352161,
+      "dollar_unavailable_within_common_eligible_endpoints": 0,
+      "below_floor_treatment": "an available endpoint below the dollar floor is an eligible nonmatch",
+      "unavailable_treatment": "unavailable required inputs break periods",
+      "standalone_result_warning": "saved final counts require common fast/slow availability and both dollar rates; standalone eight-condition fast-only and slow-only results were not calculated"
+    },
+    "period_grouping": {
+      "off_delay_seconds": 30,
+      "maximum_consecutive_eligible_nonmatches_kept": 29,
+      "minimum_elapsed_seconds": 600,
+      "minimum_matching_occupancy": 0.8,
+      "first_and_last_matching_endpoint_trim": true,
+      "interval_convention": "half-open [start,end)",
+      "split_boundaries": [
+        "30 consecutive eligible nonmatches",
+        "unavailable required input",
+        "physical one-second grid gap",
+        "session boundary",
+        "symbol-day boundary"
+      ],
+      "duration_definition": "elapsed seconds from one second before the first matching endpoint through the last matching endpoint; includes permitted eligible nonmatches"
+    }
+  },
+  "final_eight_condition_results": {
+    "fast": {
+      "raw_counts": {
+        "matching_endpoints": 1880242,
+        "selected_symbol_days": 2310,
+        "selected_distinct_stocks": 948,
+        "retained_periods": 577,
+        "retained_symbol_days": 366,
+        "retained_distinct_stocks": 267,
+        "retained_period_coverage_seconds": 604267,
+        "matching_endpoints_inside_retained_periods": 580206,
+        "median_retained_period_elapsed_seconds": 859
+      },
+      "calculated_ratios": {
+        "matching_share_of_common_eligible": 0.006498109409315937,
+        "duration_weighted_retained_period_occupancy": 0.9601815091673052
+      }
+    },
+    "slow": {
+      "raw_counts": {
+        "matching_endpoints": 1709197,
+        "selected_symbol_days": 1304,
+        "selected_distinct_stocks": 648,
+        "retained_periods": 854,
+        "retained_symbol_days": 501,
+        "retained_distinct_stocks": 342,
+        "retained_period_coverage_seconds": 1062129,
+        "matching_endpoints_inside_retained_periods": 1049360,
+        "median_retained_period_elapsed_seconds": 986.5
+      },
+      "calculated_ratios": {
+        "matching_share_of_common_eligible": 0.005906978520889636,
+        "duration_weighted_retained_period_occupancy": 0.9879779198195323
+      }
+    },
+    "membership_categories": {
+      "definition": "both means positive membership in each view, not necessarily simultaneous matching endpoints",
+      "any_matching_endpoint": {
+        "symbol_days": {
+          "both": 1302,
+          "fast_only": 1008,
+          "slow_only": 2,
+          "neither": 2896
+        },
+        "distinct_stocks": {
+          "both": 648,
+          "fast_only": 300,
+          "slow_only": 0,
+          "neither": 572
+        }
+      },
+      "retained_period": {
+        "symbol_days": {
+          "both": 343,
+          "fast_only": 23,
+          "slow_only": 158,
+          "neither": 4684
+        },
+        "distinct_stocks": {
+          "both": 251,
+          "fast_only": 16,
+          "slow_only": 91,
+          "neither": 1162
+        }
+      }
+    },
+    "matching_overlap": {
+      "raw_counts": {
+        "fast_seconds": 1880242,
+        "slow_seconds": 1709197,
+        "shared_seconds": 1284895,
+        "fast_only_seconds": 595347,
+        "slow_only_seconds": 424302,
+        "union_seconds": 2304544
+      },
+      "calculated_ratios": {
+        "shared_over_union": 0.5575484781371065,
+        "shared_over_fast": 0.6833668219303686,
+        "shared_over_slow": 0.751753601252518
+      }
+    },
+    "retained_period_coverage_overlap": {
+      "definition": "elapsed coverage inside accepted periods, including permitted internal eligible nonmatches",
+      "raw_counts": {
+        "fast_seconds": 604267,
+        "slow_seconds": 1062129,
+        "shared_seconds": 527955,
+        "fast_only_seconds": 76312,
+        "slow_only_seconds": 534174,
+        "union_seconds": 1138441
+      },
+      "calculated_ratios": {
+        "shared_over_union": 0.4637526231047547,
+        "shared_over_fast": 0.8737114553665847,
+        "shared_over_slow": 0.49707238951200844
+      }
+    }
+  },
+  "seven_condition_comparison": {
+    "population_label": "same common-availability comparison population as the final screen; dollar floor omitted",
+    "common_eligible_endpoints": 289352161,
+    "fast": {
+      "raw_counts": {
+        "seven_condition_matching_endpoints": 3024834,
+        "excluded_by_10000_dollar_floor": 1144592,
+        "eight_condition_matching_endpoints": 1880242,
+        "seven_condition_retained_periods": 952,
+        "eight_condition_retained_periods": 577
+      },
+      "calculated_ratios": {
+        "excluded_share_of_seven_condition_matches": 0.37839828565798983,
+        "retained_share_after_dollar_floor": 0.6216017143420102
+      }
+    },
+    "slow": {
+      "raw_counts": {
+        "seven_condition_matching_endpoints": 2696973,
+        "excluded_by_10000_dollar_floor": 987776,
+        "eight_condition_matching_endpoints": 1709197,
+        "seven_condition_retained_periods": 1321,
+        "eight_condition_retained_periods": 854
+      },
+      "calculated_ratios": {
+        "excluded_share_of_seven_condition_matches": 0.3662535739141623,
+        "retained_share_after_dollar_floor": 0.6337464260858378
+      }
+    },
+    "interpretation": "excluded counts are endpoints passing the other seven conditions with valid own-view dollar rate below 10000 USD/s"
+  },
+  "session_summary": [
+    {
+      "session": "premarket",
+      "raw_counts": {
+        "common_eligible_endpoints": 94182073,
+        "fast_matching_endpoints": 818153,
+        "slow_matching_endpoints": 736004,
+        "fast_retained_periods": 275,
+        "slow_retained_periods": 394,
+        "fast_retained_period_coverage_seconds": 275410,
+        "slow_retained_period_coverage_seconds": 459906,
+        "shared_retained_period_coverage_seconds": 226474,
+        "union_retained_period_coverage_seconds": 508842
+      },
+      "calculated_ratios": {
+        "fast_matching_share_of_common_eligible": 0.008686929199360477,
+        "slow_matching_share_of_common_eligible": 0.007814693142292588,
+        "retained_shared_over_union": 0.4450772538430397,
+        "retained_shared_over_fast": 0.8223158200501071,
+        "retained_shared_over_slow": 0.49243541071436336
+      }
+    },
+    {
+      "session": "rth",
+      "raw_counts": {
+        "common_eligible_endpoints": 121261114,
+        "fast_matching_endpoints": 927712,
+        "slow_matching_endpoints": 868888,
+        "fast_retained_periods": 278,
+        "slow_retained_periods": 407,
+        "fast_retained_period_coverage_seconds": 305606,
+        "slow_retained_period_coverage_seconds": 549291,
+        "shared_retained_period_coverage_seconds": 282404,
+        "union_retained_period_coverage_seconds": 572493
+      },
+      "calculated_ratios": {
+        "fast_matching_share_of_common_eligible": 0.007650531727755693,
+        "slow_matching_share_of_common_eligible": 0.0071654298013458795,
+        "retained_shared_over_union": 0.49328812754042406,
+        "retained_shared_over_fast": 0.9240787157320209,
+        "retained_shared_over_slow": 0.5141245714930701
+      }
+    },
+    {
+      "session": "after_hours",
+      "raw_counts": {
+        "common_eligible_endpoints": 73908974,
+        "fast_matching_endpoints": 134377,
+        "slow_matching_endpoints": 104305,
+        "fast_retained_periods": 24,
+        "slow_retained_periods": 53,
+        "fast_retained_period_coverage_seconds": 23251,
+        "slow_retained_period_coverage_seconds": 52932,
+        "shared_retained_period_coverage_seconds": 19077,
+        "union_retained_period_coverage_seconds": 57106
+      },
+      "calculated_ratios": {
+        "fast_matching_share_of_common_eligible": 0.0018181418673191162,
+        "slow_matching_share_of_common_eligible": 0.0014112629949375294,
+        "retained_shared_over_union": 0.33406297061604734,
+        "retained_shared_over_fast": 0.8204808395337835,
+        "retained_shared_over_slow": 0.3604058036726366
+      }
+    }
+  ],
+  "date_summary": {
+    "matching_share_of_common_eligible": {
+      "fast": {
+        "daily_minimum": 0.0012745038812182218,
+        "daily_q25": 0.003995221429635282,
+        "daily_median": 0.005893593912041057,
+        "daily_q75": 0.008392592399420806,
+        "daily_maximum": 0.015809462281544815
+      },
+      "slow": {
+        "daily_minimum": 0.0007140150008656145,
+        "daily_q25": 0.0031271667349950447,
+        "daily_median": 0.005169762302349843,
+        "daily_q75": 0.007723846830168136,
+        "daily_maximum": 0.016158047932980805
+      },
+      "daily_quantile_method": "linear interpolation on sorted daily ratios",
+      "days": 122
+    },
+    "matching_overlap": {
+      "pooled_shared_over_union": 0.5575484781371065,
+      "days_with_nonzero_union": 122,
+      "daily_minimum": 0.2454375292466074,
+      "daily_q25": 0.4810438789460815,
+      "daily_median": 0.5307383486613322,
+      "daily_q75": 0.5912895564813287,
+      "daily_maximum": 0.6841480778357855,
+      "daily_quantile_method": "linear interpolation on sorted daily ratios",
+      "days_fast_seconds_greater_than_slow": 112,
+      "days_slow_seconds_greater_than_fast": 10,
+      "days_equal": 0
+    },
+    "retained_period_coverage_overlap": {
+      "pooled_shared_over_union": 0.4637526231047547,
+      "days_with_nonzero_union": 118,
+      "daily_minimum": 0.0,
+      "daily_q25": 0.32444183428314116,
+      "daily_median": 0.4168905756590875,
+      "daily_q75": 0.5411449569274013,
+      "daily_maximum": 0.8442188879082083,
+      "daily_quantile_method": "linear interpolation on sorted daily ratios",
+      "days_without_retained_union": 4,
+      "days_fast_seconds_greater_than_slow": 5,
+      "days_slow_seconds_greater_than_fast": 113,
+      "days_equal": 4
+    }
+  },
+  "readme_example": {
+    "symbol": "ANY",
+    "session_date": "2026-06-01",
+    "session": "premarket",
+    "view": "fast",
+    "variant": "fast_constrained",
+    "period_start_utc": "2026-06-01 11:20:12+00",
+    "period_end_utc": "2026-06-01 11:41:35+00",
+    "period_start_us_eastern": "2026-06-01 07:20:12 EDT",
+    "period_end_us_eastern": "2026-06-01 07:41:35 EDT",
+    "elapsed_seconds": 1283,
+    "matching_endpoints": 1184,
+    "eligible_nonmatching_endpoints": 99,
+    "matching_occupancy": 0.9228371005455963,
+    "maximum_nonmatching_gap_seconds": 25,
+    "throughput_statement": "each matching endpoint has fast EW dollar rate >= 10000 USD/s",
+    "saved_result_limits": [
+      "period-specific minimum, mean, and median dollar rates are not retained with identity keys",
+      "the saved period row does not record which screen conditions caused its internal nonmatches"
+    ]
+  },
+  "provenance": {
+    "study_code_revision": "2e05ce86f6cd3726cb4a2d102932454a4b72f8df",
+    "study_wheel_sha256": "ae7d99638db05aed610962e0f8e457f065331015fd842e2bfdc425824348185f",
+    "query_catalog_identity": "4fe3df9b375af2dd1981d0464c06a5e99714f4b0f9eaad5c3466a76a31276dd5",
+    "endpoint_release_source_revision": "ea2e16128225a91ceb6003fcb3f6ef80985ba8e0",
+    "endpoint_release_wheel_sha256": "a506c2ad2fd7aabeb6d214a876f6741f303d8bc713fb34a4b6dbbc83d85cafe9",
+    "source_artifacts": [
+      {
+        "basename": "run_metadata.json",
+        "sha256": "f493385b5098b54c535966d29174747460fff3f9f38e15f358b13b16843a9c4e",
+        "role": "study and release identities; run scope",
+        "hash_origin": "computed from saved artifact during export"
+      },
+      {
+        "basename": "baseline_reproduction.json",
+        "sha256": "85abf4901a52156a7be98de4714dd97b0119ab9da6792febcf8d2455ab0889ca",
+        "role": "exact reproduction check for seven-condition comparison totals",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "config.json",
+        "sha256": "fac43ec12836f6e9bbb57ccc5df3ff7f2f6226b246a53b24e5921533509f4150",
+        "role": "dollar floor and constrained-period configuration",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "constrained_matching_overlap.json",
+        "sha256": "f5ee72699ed9cbecad607c9eb1b66bd6e0c707d557fa3ba7eac7ee278f7a39b6",
+        "role": "member/date/overall final matching overlap",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "constrained_membership_summary.json",
+        "sha256": "6616ae8efe10b16974f3185570e1d74b93f19c1c3730aa2cc3425018bfc652c2",
+        "role": "view totals, membership, period counts, durations, and occupancy",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "constrained_retained_overlap.json",
+        "sha256": "82d66cdd0c81fbc8e2176931921c392e119c2af2fdc1e323fec1253d4697c6c8",
+        "role": "member/date/overall retained-period coverage overlap",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "constrained_retained_periods.json",
+        "sha256": "1d2abd59778b067518984def2862e6dc00a98221d10e348e39bd49b104acdf21",
+        "role": "bounded reductions for duration, session overlap, and ANY example",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "contribution_by_date.json",
+        "sha256": "4d1f3fd7ed0da706bb87dd6fb86b4d4e117abd8f013a6089ff22143a8df90812",
+        "role": "date common-eligible and matching counts",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "contribution_by_session.json",
+        "sha256": "01b3e662f1d4f158227b9d12690058588edc1012373688a8759954b503e8aa1b",
+        "role": "session common-eligible and matching counts",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "dollar_gate_accounting.json",
+        "sha256": "c80dbf159b7dd05fc3be5bc5d9b0c690d0600ffef601aa43514e06b788013ffe",
+        "role": "seven-condition totals and dollar-floor exclusions",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "query.sql",
+        "sha256": "7b14071def5c39adac0bd7c78d8e1ccf5b9974ea928a30f9aeb5c41af53abd8d",
+        "role": "saved projected columns",
+        "hash_origin": "recorded in saved run_metadata.json and reverified during export"
+      },
+      {
+        "basename": "config.json",
+        "sha256": "92bb555d91550ac5145fad041009403947f0119cfe84e28e48e50f6c7ec00a0c",
+        "role": "referenced seven-condition screen and full period-boundary rules",
+        "scope": "baseline seven-condition study",
+        "hash_origin": "recorded in saved run_metadata.json"
+      }
+    ],
+    "missing_provenance": [
+      "saved run_metadata.json records no separate named dataset snapshot identifier beyond query_catalog_identity and endpoint release source/wheel identities"
+    ]
+  },
+  "verification": {
+    "artifact_hashes_reverified": true,
+    "seven_condition_baseline_reproduction_exact": true,
+    "represented_endpoint_identity": "5208 symbol-days * 57600 seconds = 299980800 endpoints",
+    "raw_count_checks": [
+      "session common-eligible counts sum to overall common eligible endpoints",
+      "session fast and slow matches sum to overall view totals",
+      "matching and retained overlap unions equal shared plus directional-only coverage",
+      "member and stock membership categories sum to their stated denominators",
+      "period counts and duration medians reproduce constrained_membership_summary.json"
+    ],
+    "endpoint_features_read": false,
+    "study_rerun": false
+  }
+}
