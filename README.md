@@ -56,7 +56,7 @@ The database's 27 queryable fields support **12 researcher-facing dimensions**. 
 
 **Movement.** Movement is the exponentially weighted root-mean-square magnitude of five-second endpoint-midpoint returns, recalculated every second. It measures the scale of recent price changes, not their direction.
 
-**Participation.** Participation is high when return magnitudes are broadly distributed through the weighted history and low when movement is dominated by fewer large returns. It does not measure trend quality, direction, or temporal ordering.
+**Participation.** Participation is high when return magnitudes are broadly distributed through the weighted history and low when movement is dominated by fewer large returns. It discards return signs and does not identify trend quality or path shape. Recency still matters: moving a large return to a different timestamp changes its exponential weight and can change participation.
 
 **Quoted spread.** Quoted spread is the recent duration-weighted full separation between the best bid and ask, expressed in basis points. It measures displayed quoted friction rather than realized execution cost.
 
@@ -83,6 +83,8 @@ The database's 27 queryable fields support **12 researcher-facing dimensions**. 
 The nine movement, friction, activity, and displayed-liquidity measurements are published in a **fast** view with a 30-second exponential half-life and a **slow** view with a 120-second half-life. A half-life is a decay setting—the weight of an observation halves after that interval—not a hard lookback window. Freshness p90s instead use ordinary fixed trailing windows of 60 and 300 seconds, while current ages are unsmoothed. Displayed bid and ask notionals are query-time derivations from the corresponding EW mean shares and current side price; they are not additional stored features.
 
 Each timestamp labels measurements constructed from preceding events; a row ending at time $t$ summarizes the second immediately before $t$. Missing, invalid, or insufficiently covered inputs remain unavailable rather than being converted to observed inactivity. Recognized halts suppress publication and reset the affected histories. After trading resumes, the fast and slow views require 60 and 300 seconds of new startup history, respectively, before they can become available again.
+
+The five-second lag fixes the movement scale; the two half-lives provide different recency settings at that same scale. These are product defaults, not empirically optimal parameters. Endpoint midpoints avoid directly measuring bid–ask bounce between transaction prices, but they still contain quote noise and do not estimate a noise-free efficient price. The five-second lag is not a formal microstructure-noise correction.
 
 ### 3.3 Comparing tapes with different movement to spread ratios
 
@@ -136,9 +138,9 @@ The measurements are most useful in combination. Figure 4 compares movement with
 
 *Figure 4. Joint distributions of movement with quoted spread, participation, and trade rate. Fast and slow panels use their corresponding active-tape gates and valid feature pairs.*
 
-**Movement and quoted spread rise together, but not proportionally.** Larger movement often occurs with wider quoted spreads. The broad distribution around the constant-ratio lines shows why movement alone does not establish whether its scale is large relative to quoted friction. Observations above a reference line have movement greater than the indicated number of full spreads, but this remains a descriptive comparison rather than evidence of a capturable return.
+**Larger movement often occurs with wider quoted spreads, with substantial variation in their ratio.** The broad distribution around the constant-ratio lines shows why movement alone does not establish whether its scale is large relative to quoted friction. The heatmap does not estimate a proportionality law or its slope. Observations above a reference line have movement greater than the indicated number of full spreads, but this remains a descriptive comparison rather than evidence of a capturable return.
 
-**Participation adds information about concentration, not direction.** Similar participation values occur across a wide range of movement magnitudes. A high-movement observation can reflect either broadly distributed return magnitudes or a more concentrated history, and participation does not divide the population into clear directional regimes because it discards return signs and ordering.
+**Participation adds information about concentration, not direction.** Similar participation values occur across a wide range of movement magnitudes. A high-movement observation can reflect either broadly distributed return magnitudes or a more concentrated history. Participation discards return signs and cannot distinguish directional regimes or reconstruct a price path, even though exponential weighting makes it sensitive to the recency of movement.
 
 **Trade rate does not determine movement.** Movement generally shifts higher as transaction frequency increases, but the distribution remains broad: similar trade rates coexist with materially different movement scales. Transaction activity is therefore useful as a separate query condition, not as a substitute for movement or quoted spread.
 
@@ -224,6 +226,8 @@ Retained-period coverage includes permitted internal nonmatches. Duration median
 
 **The choice of view affects endpoint selection and sustained-period selection differently.** Fast produces more matching observations and matches in substantially more symbol-days. After the duration and occupancy requirements are applied, however, slow retains periods in more symbol-days and provides more retained-period coverage. Counting isolated matches alone would therefore give a different picture of the available research sample.
 
+Longer retained periods can arise from smoothing itself. After nonzero five-second returns stop entering a mature, fully supported estimator, the squared-return mean decays approximately with half-life $h$, while its square root decays approximately with half-life $2h$: 60 seconds for fast movement and 240 seconds for slow movement. Changing spreads, activity and freshness also affects the screen. The comparison does not separate this mechanical persistence from persistence of newly arriving market activity.
+
 **The retained-period universes share a substantial core.** Of the 366 symbol-days with fast periods, 343 also contain slow periods. Fast adds 23 symbol-days absent from the slow period selection, while slow adds 158 absent from fast. At the temporal level, 87.37% of fast period coverage overlaps slow coverage, whereas 49.71% of slow coverage overlaps fast. Slow therefore retains most of the fast-selected time while adding substantial coverage beyond it.
 
 Shared time divided by time selected by either view is 55.75% for matching endpoints and 46.38% for retained-period coverage. These pooled findings recur across dates: fast has more matching seconds on 112 of 122 dates, while slow has more retained-period coverage on 113 dates.
@@ -280,6 +284,8 @@ $$
 
 Eligible condition codes are 0, 3, 14, 36, 37, 41, and 60, with code 12 additionally accepted outside RTH. Original correction payloads 0, 7, and 8 are eligible; action records, correction payload 1, and known late or ineligible reports do not contribute to count, shares, dollars, or eligible-trade freshness. Unknown eligibility makes the affected activity observation unavailable rather than zero.
 
+This is a defined population of timely eligible reports, not total consolidated volume or the provider's minute-bar population. The one-second reporting-age cutoff excludes otherwise legitimate delayed reports, so activity comparisons also depend on reporting delays. Correction payload 1 is excluded because original-payload linkage has not been validated; excluding a corrected historical row does not reconstruct its original live payload. SIP ordering and these filters therefore do not establish a complete as-received historical replay.
+
 ### A.2 Movement and derived measurements
 
 Let $m(t)$ be the finite, positive midpoint of the prevailing valid quote state immediately before endpoint $t$. The supported five-second return is
@@ -308,7 +314,7 @@ P_t=\frac{A_t^2}{Q_t},
 X_t=\frac{\sigma_{5,t}}{S_t},
 $$
 
-where $S_t$ is the EW mean full quoted spread in basis points at the same half-life. Movement is an RMS magnitude, not a directional return or annualized volatility estimate. Participation describes whether weighted return magnitudes are broadly distributed or concentrated; it discards signs and ordering. Movement/spread is a descriptive scale comparison, not expected capturable return.
+where $S_t$ is the EW mean full quoted spread in basis points at the same half-life. Movement is an uncentered RMS magnitude, not a directional return, mean-centered standard deviation, or annualized volatility estimate. Participation describes concentration of the weighted magnitudes: it discards signs, while observation timestamps affect the weights. It cannot recover temporal path structure. For positive $Q_t$, $0 < P_t \leq 1$; equal positive magnitudes give one, and an all-zero history leaves participation undefined. Movement/spread is a descriptive scale comparison, not expected capturable return.
 
 Spread, trade/share/dollar rates, and bid/ask displayed sizes are exposure-weighted means. Their supported numerators and durations decay separately before division; the system does not average per-second ratios with unequal coverage. A reliably observed second with no eligible trades contributes zero activity and positive supported time. Missing time contributes no fabricated zero.
 

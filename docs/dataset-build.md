@@ -23,7 +23,7 @@ Acquisition and R2 transfer are optional and separate from calculation. See [acq
 
 ## 2. Admit and build one-second base measurements
 
-Admission verifies terminal coverage evidence, quantity representation, quote-size units, halt/continuity context, and immutable source identities. A blocked admission is not converted into zero activity.
+Admission checks quantity representation, quote-size units, halt/continuity context, and immutable source identities. The normal path also requires terminal coverage evidence; the explicit historical exception retains unverified retrieval completeness, as described in [the admission boundary](feature-pipeline.md#admission-boundary). A blocked admission is not converted into zero activity.
 
 ```text
 tape-product base admit ...

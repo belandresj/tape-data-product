@@ -18,6 +18,6 @@ Completion means integrity and schema verification passed. Independent reconstru
 
 ## Admission boundary
 
-Accepted calculation requires identity-bound terminal coverage, verified quote-size units, a declared trade-quantity representation, and accepted halt/continuity context. Missing evidence produces a blocked admission, not synthetic zero activity or an assumed empty halt overlay. A prefix context must declare exact start, end, and row count.
+The normal `tape_source_pair_v1` admission path requires identity-bound terminal coverage, verified quote-size units, a declared trade-quantity representation, and accepted halt/continuity context. A separate historical `tape_source_pair_v2` path permits the explicitly recorded status `unverified_missing_original_vendor_pagination_receipts`, with `terminal_complete=false`. This exception preserves the historical completeness limitation; it does not prove complete vendor retrieval. Both paths retain the remaining identity, units, context, and numerical checks. Other missing required evidence blocks admission rather than becoming synthetic zero activity or an assumed empty halt overlay. A prefix context must declare exact start, end, and row count.
 
 `tape-product calculate plan` writes an immutable, hash-addressed plan. `calculate run` fails before calculation if transfer completion, admission, measurements, paths, or identities are unresolved. It has no automatic retry, scheduling, download, or R2 mutation behavior.

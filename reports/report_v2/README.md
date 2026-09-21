@@ -4,7 +4,7 @@ This directory contains the public, reviewable artifacts supporting the endpoint
 
 ## Contents
 
-- [`report_v2_final.md`](report_v2_final.md): preserved final client-facing report before its root-relative link adjustment.
+- [`report_v2_final.md`](report_v2_final.md): preserved earlier report snapshot; the root README contains subsequent methodology clarifications and the full-release eight-condition comparison.
 - `assets/`: rendered publication figures in PNG and SVG form.
 - `data/`: sanitized aggregates, summaries, and artifact identities supporting the published figures.
 
@@ -14,7 +14,9 @@ Reusable calculation and rendering code lives in [`src/tape_data_product/analysi
 
 ## Lineage highlights
 
-The five-date structured-tape query returned 189,162 matching endpoints from 286 represented symbol-days. The saved reducer retained periods lasting at least ten minutes with at least 80% matching occupancy while allowing interruptions shorter than 30 seconds. Its publication-safe aggregate is [`data/strong_tape_episode_population.json`](data/strong_tape_episode_population.json).
+The current root report's full-release eight-condition comparison is supported by [`data/half_life_dollar_10k_summary.json`](data/half_life_dollar_10k_summary.json). It records 577 fast and 854 slow retained periods, the common-availability population, the dollar-throughput condition, and source-artifact identities. The tracked [`compare_half_life_selection.py`](../../scripts/research/compare_half_life_selection.py) implements the earlier seven-condition comparison; it does not reproduce the final dollar-constrained study. The final study's code revision and wheel identity are recorded in the aggregate, but its complete runner is not included in this checkout.
+
+The earlier five-date, seven-condition structured-tape query returned 189,162 matching endpoints from 286 represented symbol-days. The saved reducer retained periods lasting at least ten minutes with at least 80% matching occupancy while allowing interruptions shorter than 30 seconds. Its publication-safe aggregate is [`data/strong_tape_episode_population.json`](data/strong_tape_episode_population.json); those counts are not the current full-release example.
 
 The GPUS/CAST comparison is rendered by [`gpus_cast_comparison.py`](../../src/tape_data_product/analysis/gpus_cast_comparison.py) from identity-checked base partitions and [`data/gpus_cast_comparison_numerical_source.json`](data/gpus_cast_comparison_numerical_source.json). The fixed endpoints and rebasing values are saved so the illustration cannot drift silently.
 
